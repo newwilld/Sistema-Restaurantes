@@ -12,61 +12,150 @@
   <style>
     body { font-family: 'Inter', sans-serif; }
     
+    /* --- CSS NOVO IMPLEMENTADO --- */
+
     /* Animações suaves */
-    .card-animado { transition: transform 0.3s ease, box-shadow 0.3s ease; }
-    .card-animado:hover { transform: translateY(-4px); box-shadow: 0 12px 24px rgba(0, 0, 0, 0.08); }
+    .card-animado {
+      transition: transform 0.3s ease, box-shadow 0.3s ease;
+    }
+    .card-animado:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 12px 24px rgba(0, 0, 0, 0.08);
+    }
 
     /* Modal suave */
     #modalCliente {
-      transition: opacity 0.3s ease, visibility 0.3s ease;
-      opacity: 0;
-      visibility: hidden;
+      transition: opacity 0.3s ease, transform 0.3s ease;
       z-index: 50;
+      opacity: 0;
+      visibility: hidden; /* Mantém hidden para não bloquear cliques quando fechado */
     }
-    #modalCliente.show { display: flex !important; opacity: 1; visibility: visible; transform: scale(1); }
+    #modalCliente.show {
+      display: flex !important;
+      opacity: 1;
+      visibility: visible;
+      transform: scale(1);
+    }
 
     /* Botões */
     .action-btn {
-      padding: 6px 12px;
-      border-radius: 6px;
+      padding: 6px 10px;
+      border-radius: 4px;
       font-size: 0.875rem;
       font-weight: 500;
       margin-right: 4px;
       cursor: pointer;
-      border: none;
-      display: inline-flex;
+      border: none; /* Reset border */
+      display: inline-flex; /* Alinhamento icone */
       align-items: center;
       gap: 4px;
-      transition: background 0.2s ease, transform 0.1s;
+      transition: background 0.2s ease;
     }
-    .action-btn:active { transform: scale(0.95); }
-    .btn-edit { background-color: #6366f1; color: white; }
-    .btn-edit:hover { background-color: #4f46e5; }
-    .btn-whatsapp { background-color: #22c55e; color: white; }
-    .btn-whatsapp:hover { background-color: #16a34a; }
-    .btn-delete { background-color: #ef4444; color: white; }
-    .btn-delete:hover { background-color: #dc2626; }
+    .btn-edit {
+      background-color: #6366f1;
+      color: white;
+    }
+    .btn-edit:hover {
+      background-color: #4f46e5;
+    }
+    .btn-whatsapp {
+      background-color: #22c55e;
+      color: white;
+    }
+    .btn-whatsapp:hover {
+      background-color: #16a34a;
+    }
+    .btn-delete {
+      background-color: #ef4444;
+      color: white;
+    }
+    .btn-delete:hover {
+      background-color: #dc2626;
+    }
 
-    /* Tags */
-    .status-badge { padding: 4px 8px; border-radius: 999px; font-size: 0.70rem; font-weight: bold; text-transform: uppercase; letter-spacing: 0.05em; }
-    .status-realizando { background-color: #3b82f6; color: white; }
-    .status-entregue { background-color: #10b981; color: white; }
+    /* Tags de status e prioridade */
+    .status-realizando {
+      background-color: #3b82f6;
+      color: white;
+      padding: 4px 8px;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: bold;
+      text-transform: uppercase;
+    }
+    .status-entregue {
+      background-color: #10b981;
+      color: white;
+      padding: 4px 8px;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: bold;
+      text-transform: uppercase;
+    }
+    
+    /* Badges de Prioridade (Visualização em Texto) */
+    .prioridade-alta {
+      color: #ef4444;
+      font-weight: 600;
+    }
+    .prioridade-média {
+      color: #f59e0b;
+      font-weight: 600;
+    }
+    .prioridade-baixa {
+      color: #3b82f6;
+      font-weight: 600;
+    }
 
-    .prioridade-badge { padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; display: inline-block; }
-    .prioridade-alta { background-color: #fee2e2; color: #dc2626; border: 1px solid #fecaca; }
-    .prioridade-média { background-color: #fef3c7; color: #d97706; border: 1px solid #fde68a; }
-    .prioridade-baixa { background-color: #dbeafe; color: #2563eb; border: 1px solid #bfdbfe; }
+    /* Cores de fundo pelo status (Aplicado aos Cards) */
+    .bg-entregue {
+      background-color: #beffd1 !important;
+    }
+    .bg-realizando {
+      background-color: #fee2e2 !important; /* Nota: user pediu esta cor (vermelho claro) para realizando */
+    }
 
-    /* Cores de fundo */
-    .bg-entregue { background-color: #f0fdf4 !important; }
-    .bg-realizando { background-color: #fff !important; }
+    /* Cores de borda esquerda por prioridade */
+    /* Nota: Adicionado border-left-width/style para garantir que a cor apareça */
+    .borda-alta {
+      border-left: 4px solid #dc2626 !important;
+    }
+    .borda-media, .borda-média { /* Suporte para ambos os casos */
+      border-left: 4px solid #f59e0b !important;
+    }
+    .borda-baixa {
+      border-left: 4px solid #3b82f6 !important;
+    }
 
-    /* Bordas */
-    .borda-alta { border-left: 4px solid #ef4444 !important; }
-    .borda-média { border-left: 4px solid #f59e0b !important; }
-    .borda-baixa { border-left: 4px solid #3b82f6 !important; } 
+    /* Estilo da tabela para mobile (Preservado conforme pedido, caso use tabelas futuramente) */
+    table {
+      overflow-x: auto;
+    }
+    td {
+      word-break: break-word;
+    }
+    @media (max-width: 640px) {
+      table thead {
+        display: none;
+      }
+      table tbody td {
+        display: block;
+        width: 100%;
+      }
+      table tbody tr {
+        display: block;
+        margin-bottom: 1rem;
+        border-bottom: 1px solid #e2e8f0;
+      }
+      table tbody td::before {
+        content: attr(data-label);
+        font-weight: bold;
+        display: block;
+        margin-bottom: 0.25rem;
+      }
+    }
 
-    /* Scrollbar */
+    /* Scrollbar Personalizada */
     ::-webkit-scrollbar { width: 8px; }
     ::-webkit-scrollbar-track { background: #f1f1f1; }
     ::-webkit-scrollbar-thumb { background: #bfdbfe; border-radius: 4px; }
@@ -286,7 +375,7 @@
     const addClienteBtn = document.getElementById('addClienteBtn');
     const cancelarBtn = document.getElementById('cancelarBtn');
     const fecharModalX = document.getElementById('fecharModalX');
-    const salvarBtn = document.getElementById('salvarClienteBtn'); // Usando botão normal, não submit
+    const salvarBtn = document.getElementById('salvarClienteBtn');
     
     // Filtros e Dashboard
     const buscarClienteInput = document.getElementById('buscarCliente');
@@ -310,7 +399,6 @@
     // --- Carregamento de Dados (Firebase) ---
     onValue(clientesRef, (snapshot) => {
       const data = snapshot.val();
-      // Converte objeto do Firebase para array
       clientes = data ? Object.entries(data).map(([id, cliente]) => ({ id, ...cliente })) : [];
       renderizarClientes();
     });
@@ -339,7 +427,7 @@
         return matchNome && matchStatus && matchPrioridade;
       });
 
-      // Ordenação por prioridade se filtrado
+      // Ordenação
       if (prioridadeFiltro) {
         const prioridadeOrdem = { 'alta': 1, 'média': 2, 'baixa': 3 };
         clientesFiltrados.sort((a, b) => (prioridadeOrdem[a.prioridade] || 4) - (prioridadeOrdem[b.prioridade] || 4));
@@ -361,8 +449,10 @@
 
           const card = document.createElement('div');
           
-          // Estilização Visual Novo
-          const bordaClass = `borda-${cliente.prioridade}`;
+          // Estilização com novas classes
+          // Normaliza 'média' para 'media' para usar na classe CSS se necessário, mas CSS suporta 'média' com o seletor .borda-média
+          const prioridadeNormalizada = (cliente.prioridade || 'baixa').replace('é', 'e'); 
+          const bordaClass = `borda-${prioridadeNormalizada}`; // gera borda-media, borda-alta, borda-baixa
           const bgClass = cliente.status === 'entregue' ? 'bg-entregue' : 'bg-realizando';
           const zapLink = `https://wa.me/55${(cliente.contato || '').replace(/\D/g, '')}`;
 
@@ -375,29 +465,29 @@
                 <h3 class="font-bold text-lg text-gray-800 leading-tight">${cliente.nome}</h3>
                 <p class="text-sm text-gray-500 font-medium">${cliente.empresa || 'Particular'}</p>
               </div>
-              <span class="status-badge status-${cliente.status}">${cliente.status}</span>
+              <span class="status-${cliente.status}">${cliente.status}</span>
             </div>
             
             <!-- Corpo do Card -->
             <div class="space-y-3 mb-6 flex-1">
               <div class="flex items-center justify-between text-sm">
-                  <span class="text-gray-500 flex items-center gap-2"><i class="ph ph-briefcase"></i> ${cliente.servico}</span>
-                  <span class="prioridade-badge prioridade-${cliente.prioridade}">${cliente.prioridade}</span>
+                  <span class="text-gray-600 flex items-center gap-2 font-medium"><i class="ph ph-briefcase"></i> ${cliente.servico}</span>
+                  <span class="prioridade-${cliente.prioridade}">${cliente.prioridade}</span>
               </div>
-              <div class="flex items-center gap-2 text-sm text-gray-600 font-mono bg-gray-50/50 p-2 rounded border border-gray-100">
-                 <span class="text-gray-400">R$</span> <span class="font-bold text-gray-700 text-base">${parseFloat(cliente.valor || 0).toFixed(2)}</span>
+              <div class="flex items-center gap-2 text-sm text-gray-600 font-mono bg-white/50 p-2 rounded border border-gray-200/50">
+                 <span class="text-gray-500">R$</span> <span class="font-bold text-gray-800 text-base">${parseFloat(cliente.valor || 0).toFixed(2)}</span>
               </div>
-               ${cliente.obs ? `<p class="text-xs text-gray-400 italic line-clamp-2 mt-2">"${cliente.obs}"</p>` : ''}
+               ${cliente.obs ? `<p class="text-xs text-gray-500 italic line-clamp-2 mt-2">"${cliente.obs}"</p>` : ''}
             </div>
 
             <!-- Footer Ações -->
-            <div class="pt-4 border-t border-gray-100/50 flex flex-wrap gap-2 mt-auto">
+            <div class="pt-4 border-t border-gray-200/50 flex flex-wrap gap-2 mt-auto">
                <button onclick="window.abrirZap('${zapLink}')" class="action-btn btn-whatsapp" title="Chamar no WhatsApp">
-                  <i class="ph ph-whatsapp-logo text-lg"></i>
+                  <i class="ph ph-whatsapp-logo text-lg"></i> WhatsApp
                </button>
                <div class="ml-auto flex gap-2">
                   <button onclick="window.editarCliente('${cliente.id}')" class="action-btn btn-edit" title="Editar">
-                      <i class="ph ph-pencil-simple text-lg"></i> Editar
+                      <i class="ph ph-pencil-simple text-lg"></i>
                   </button>
                   <button onclick="window.deletarCliente('${cliente.id}')" class="action-btn btn-delete" title="Excluir">
                       <i class="ph ph-trash text-lg"></i>
@@ -416,7 +506,7 @@
       totalClientesEl.textContent = clientes.length;
     }
 
-    // --- Funções Globais (para onclick no HTML) ---
+    // --- Funções Globais ---
     
     window.abrirZap = (url) => window.open(url, '_blank');
 
@@ -458,7 +548,7 @@
         empresa: document.getElementById('empresaCliente').value,
         contato: document.getElementById('contatoCliente').value,
         valor: parseFloat(document.getElementById('valorCliente').value) || 0,
-        servico: document.getElementById('tipoServico').value, // Mapeado para select tipoServico
+        servico: document.getElementById('tipoServico').value,
         prioridade: document.getElementById('prioridadeCliente').value,
         status: document.getElementById('statusCliente').value,
         data: document.getElementById('dataCriacao').value,
@@ -505,19 +595,16 @@
     addClienteBtn.addEventListener('click', abrirModal);
     cancelarBtn.addEventListener('click', fecharModal);
     fecharModalX.addEventListener('click', fecharModal);
-    salvarBtn.addEventListener('click', salvarCliente); // Evento direto no botão, não submit
+    salvarBtn.addEventListener('click', salvarCliente); 
     
-    // Fechar ao clicar fora
     modalCliente.addEventListener('click', (e) => {
         if (e.target === modalCliente) fecharModal();
     });
 
-    // Filtros
     [buscarClienteInput, filtroStatus, filtroPrioridade].forEach(el => {
         el.addEventListener('input', renderizarClientes);
     });
 
-    // Limpar Tudo
     limparTudoBtn.addEventListener('click', () => {
       if (confirm("⚠️ ATENÇÃO: Isso apagará TODOS os clientes do banco de dados PERMANENTEMENTE.\n\nDeseja continuar?")) {
         if (confirm("Última chance: Tem certeza absoluta?")) {
@@ -526,7 +613,6 @@
       }
     });
 
-    // Exportar
     exportarBtn.addEventListener('click', () => {
       const blob = new Blob([JSON.stringify(clientes, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
@@ -536,7 +622,6 @@
       a.click();
     });
 
-    // Importar
     importarInput.addEventListener('change', (e) => {
       const file = e.target.files[0];
       if (!file) return;
@@ -548,7 +633,7 @@
           if (Array.isArray(dados)) {
             if(confirm(`Deseja importar ${dados.length} clientes para o banco de dados?`)) {
                 dados.forEach(c => {
-                    const { id, ...semId } = c; // Remove ID antigo para gerar novo no Firebase
+                    const { id, ...semId } = c;
                     push(clientesRef, semId);
                 });
             }
@@ -558,7 +643,7 @@
         } catch (err) {
           alert('Erro ao ler arquivo: ' + err.message);
         }
-        e.target.value = ''; // Reset input
+        e.target.value = '';
       };
       reader.readAsText(file);
     });
