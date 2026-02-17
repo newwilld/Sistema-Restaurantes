@@ -6,38 +6,24 @@
   <title>WA CRM - Azul Moderno</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <!-- Ícones Phosphor (opcional, para ícones bonitos nos botões) -->
+  <!-- Ícones Phosphor -->
   <script src="https://unpkg.com/@phosphor-icons/web"></script>
 
   <style>
-    body {
-      font-family: 'Inter', sans-serif;
-    }
+    body { font-family: 'Inter', sans-serif; }
     
-    /* --- CSS NOVO SOLICITADO --- */
-
     /* Animações suaves */
-    .card-animado {
-      transition: transform 0.3s ease, box-shadow 0.3s ease;
-    }
-    .card-animado:hover {
-      transform: translateY(-4px);
-      box-shadow: 0 12px 24px rgba(0, 0, 0, 0.08);
-    }
+    .card-animado { transition: transform 0.3s ease, box-shadow 0.3s ease; }
+    .card-animado:hover { transform: translateY(-4px); box-shadow: 0 12px 24px rgba(0, 0, 0, 0.08); }
 
     /* Modal suave */
     #modalCliente {
       transition: opacity 0.3s ease, visibility 0.3s ease;
       opacity: 0;
-      visibility: hidden; /* Adicionado para garantir que o modal não bloqueie cliques quando invisível */
+      visibility: hidden;
       z-index: 50;
     }
-    #modalCliente.show {
-      display: flex !important;
-      opacity: 1;
-      visibility: visible;
-      transform: scale(1);
-    }
+    #modalCliente.show { display: flex !important; opacity: 1; visibility: visible; transform: scale(1); }
 
     /* Botões */
     .action-btn {
@@ -53,90 +39,32 @@
       gap: 4px;
       transition: background 0.2s ease, transform 0.1s;
     }
-    .action-btn:active {
-        transform: scale(0.95);
-    }
-    .btn-edit {
-      background-color: #6366f1;
-      color: white;
-    }
-    .btn-edit:hover {
-      background-color: #4f46e5;
-    }
-    .btn-whatsapp {
-      background-color: #22c55e;
-      color: white;
-    }
-    .btn-whatsapp:hover {
-      background-color: #16a34a;
-    }
-    .btn-delete {
-      background-color: #ef4444;
-      color: white;
-    }
-    .btn-delete:hover {
-      background-color: #dc2626;
-    }
+    .action-btn:active { transform: scale(0.95); }
+    .btn-edit { background-color: #6366f1; color: white; }
+    .btn-edit:hover { background-color: #4f46e5; }
+    .btn-whatsapp { background-color: #22c55e; color: white; }
+    .btn-whatsapp:hover { background-color: #16a34a; }
+    .btn-delete { background-color: #ef4444; color: white; }
+    .btn-delete:hover { background-color: #dc2626; }
 
-    /* Tags de status e prioridade */
-    .status-badge {
-      padding: 4px 8px;
-      border-radius: 999px;
-      font-size: 0.70rem;
-      font-weight: bold;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-    }
-    .status-realizando {
-      background-color: #3b82f6;
-      color: white;
-    }
-    .status-entregue {
-      background-color: #10b981;
-      color: white;
-    }
+    /* Tags */
+    .status-badge { padding: 4px 8px; border-radius: 999px; font-size: 0.70rem; font-weight: bold; text-transform: uppercase; letter-spacing: 0.05em; }
+    .status-realizando { background-color: #3b82f6; color: white; }
+    .status-entregue { background-color: #10b981; color: white; }
 
-    .prioridade-badge {
-        padding: 2px 8px;
-        border-radius: 4px;
-        font-size: 0.75rem;
-        font-weight: 600;
-        display: inline-block;
-    }
-    .prioridade-alta {
-      background-color: #fee2e2;
-      color: #dc2626;
-      border: 1px solid #fecaca;
-    }
-    .prioridade-média {
-      background-color: #fef3c7;
-      color: #d97706;
-      border: 1px solid #fde68a;
-    }
-    .prioridade-baixa {
-      background-color: #dbeafe;
-      color: #2563eb;
-      border: 1px solid #bfdbfe;
-    }
+    .prioridade-badge { padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; display: inline-block; }
+    .prioridade-alta { background-color: #fee2e2; color: #dc2626; border: 1px solid #fecaca; }
+    .prioridade-média { background-color: #fef3c7; color: #d97706; border: 1px solid #fde68a; }
+    .prioridade-baixa { background-color: #dbeafe; color: #2563eb; border: 1px solid #bfdbfe; }
 
-    /* Cores de fundo suave pelo status (Cards) */
-    .bg-entregue {
-      background-color: #f0fdf4 !important; /* Verde muito suave */
-    }
-    .bg-realizando {
-      background-color: #fff !important; /* Branco padrão */
-    }
+    /* Cores de fundo */
+    .bg-entregue { background-color: #f0fdf4 !important; }
+    .bg-realizando { background-color: #fff !important; }
 
-    /* Cores de borda esquerda por prioridade */
-    .borda-alta {
-      border-left: 4px solid #ef4444 !important;
-    }
-    .borda-média { /* Ajustado para acento */
-      border-left: 4px solid #f59e0b !important;
-    }
-    .borda-baixa {
-      border-left: 4px solid #3b82f6 !important;
-    } 
+    /* Bordas */
+    .borda-alta { border-left: 4px solid #ef4444 !important; }
+    .borda-média { border-left: 4px solid #f59e0b !important; }
+    .borda-baixa { border-left: 4px solid #3b82f6 !important; } 
 
     /* Scrollbar */
     ::-webkit-scrollbar { width: 8px; }
@@ -324,72 +252,98 @@
       <!-- Modal Footer -->
       <div class="p-6 border-t border-gray-100 flex justify-end gap-3 bg-gray-50 rounded-b-2xl">
           <button id="cancelarBtn" class="px-6 py-2.5 rounded-lg border border-gray-300 text-gray-700 font-medium hover:bg-gray-100 transition">Cancelar</button>
-          <button type="submit" form="formCliente" id="salvarClienteBtn" class="px-6 py-2.5 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700 shadow-lg shadow-blue-500/30 transition">Salvar Cliente</button>
+          <button type="button" id="salvarClienteBtn" class="px-6 py-2.5 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700 shadow-lg shadow-blue-500/30 transition">Salvar Cliente</button>
       </div>
     </div>
   </div>
 
-  <!-- SCRIPT -->
-  <script>
-    // --- Estado da Aplicação ---
-    let clientes = JSON.parse(localStorage.getItem('wa_crm_clientes')) || [];
-    let clienteEditandoId = null;
+  <!-- SCRIPT FIREBASE + LÓGICA -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getDatabase, ref, push, onValue, update, remove, set } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
-    // --- Elementos do DOM ---
+    // Configuração do Firebase
+    const firebaseConfig = {
+      apiKey: "AIzaSyBnKmIAnR80BzMv9oVeKWgF_ZQVZbdAfew",
+      authDomain: "crm23-7beb7.firebaseapp.com",
+      databaseURL: "https://crm23-7beb7-default-rtdb.firebaseio.com",
+      projectId: "crm23-7beb7",
+      storageBucket: "crm23-7beb7.appspot.com",
+      messagingSenderId: "219795920284",
+      appId: "1:219795920284:web:9817ab18b0f098e8f4e459",
+      measurementId: "G-ZLELD4MVLF"
+    };
+
+    // Inicialização
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+    const clientesRef = ref(db, 'clientes');
+
+    // Elementos do DOM
     const listaClientes = document.getElementById('listaClientes');
     const modalCliente = document.getElementById('modalCliente');
     const formCliente = document.getElementById('formCliente');
     const addClienteBtn = document.getElementById('addClienteBtn');
     const cancelarBtn = document.getElementById('cancelarBtn');
     const fecharModalX = document.getElementById('fecharModalX');
+    const salvarBtn = document.getElementById('salvarClienteBtn'); // Usando botão normal, não submit
     
-    // Inputs de Filtro
+    // Filtros e Dashboard
     const buscarClienteInput = document.getElementById('buscarCliente');
     const filtroStatus = document.getElementById('filtroStatus');
     const filtroPrioridade = document.getElementById('filtroPrioridade');
+    const totalValorEl = document.getElementById('totalValor');
+    const totalRealizandoEl = document.getElementById('totalRealizando');
+    const totalEntregueEl = document.getElementById('totalEntregue');
+    const totalClientesEl = document.getElementById('totalClientes');
 
     // Botões de Ação
     const exportarBtn = document.getElementById('exportarBtn');
     const importarInput = document.getElementById('importarInput');
     const limparTudoBtn = document.getElementById('limparTudoBtn');
 
-    // --- Funções Principais ---
+    // Estado Local
+    let clientes = [];
+    let editando = false;
+    let clienteIdAtual = null;
 
-    function salvarDados() {
-      localStorage.setItem('wa_crm_clientes', JSON.stringify(clientes));
-      atualizarDashboard();
+    // --- Carregamento de Dados (Firebase) ---
+    onValue(clientesRef, (snapshot) => {
+      const data = snapshot.val();
+      // Converte objeto do Firebase para array
+      clientes = data ? Object.entries(data).map(([id, cliente]) => ({ id, ...cliente })) : [];
       renderizarClientes();
-    }
+    });
+
+    // --- Funções Principais ---
 
     function formatarMoeda(valor) {
       return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor || 0);
     }
 
-    function atualizarDashboard() {
-      const totalValor = clientes.reduce((acc, c) => acc + Number(c.valor || 0), 0);
-      const totalRealizando = clientes.filter(c => c.status === 'realizando').length;
-      const totalEntregue = clientes.filter(c => c.status === 'entregue').length;
-
-      document.getElementById('totalValor').textContent = formatarMoeda(totalValor);
-      document.getElementById('totalRealizando').textContent = totalRealizando;
-      document.getElementById('totalEntregue').textContent = totalEntregue;
-      document.getElementById('totalClientes').textContent = clientes.length;
-    }
-
     function renderizarClientes() {
       listaClientes.innerHTML = '';
+      let totalValor = 0;
+      let totalRealizando = 0;
+      let totalEntregue = 0;
 
       // Filtros
-      const termo = buscarClienteInput.value.toLowerCase();
+      const termo = buscarClienteInput.value.toLowerCase().trim();
       const statusFiltro = filtroStatus.value;
       const prioridadeFiltro = filtroPrioridade.value;
 
-      const clientesFiltrados = clientes.filter(c => {
-        const matchNome = c.nome.toLowerCase().includes(termo) || (c.empresa && c.empresa.toLowerCase().includes(termo));
+      let clientesFiltrados = clientes.filter(c => {
+        const matchNome = (c.nome || '').toLowerCase().includes(termo) || (c.empresa || '').toLowerCase().includes(termo);
         const matchStatus = statusFiltro ? c.status === statusFiltro : true;
         const matchPrioridade = prioridadeFiltro ? c.prioridade === prioridadeFiltro : true;
         return matchNome && matchStatus && matchPrioridade;
       });
+
+      // Ordenação por prioridade se filtrado
+      if (prioridadeFiltro) {
+        const prioridadeOrdem = { 'alta': 1, 'média': 2, 'baixa': 3 };
+        clientesFiltrados.sort((a, b) => (prioridadeOrdem[a.prioridade] || 4) - (prioridadeOrdem[b.prioridade] || 4));
+      }
 
       if (clientesFiltrados.length === 0) {
         listaClientes.innerHTML = `
@@ -399,199 +353,215 @@
             <p class="text-sm">Tente ajustar seus filtros ou adicione um novo.</p>
           </div>
         `;
-        return;
+      } else {
+        clientesFiltrados.forEach(cliente => {
+          totalValor += cliente.valor || 0;
+          if (cliente.status === 'realizando') totalRealizando++;
+          if (cliente.status === 'entregue') totalEntregue++;
+
+          const card = document.createElement('div');
+          
+          // Estilização Visual Novo
+          const bordaClass = `borda-${cliente.prioridade}`;
+          const bgClass = cliente.status === 'entregue' ? 'bg-entregue' : 'bg-realizando';
+          const zapLink = `https://wa.me/55${(cliente.contato || '').replace(/\D/g, '')}`;
+
+          card.className = `card-animado p-6 rounded-xl shadow-sm border border-gray-100 relative group flex flex-col ${bordaClass} ${bgClass}`;
+
+          card.innerHTML = `
+            <!-- Header do Card -->
+            <div class="flex justify-between items-start mb-4">
+              <div>
+                <h3 class="font-bold text-lg text-gray-800 leading-tight">${cliente.nome}</h3>
+                <p class="text-sm text-gray-500 font-medium">${cliente.empresa || 'Particular'}</p>
+              </div>
+              <span class="status-badge status-${cliente.status}">${cliente.status}</span>
+            </div>
+            
+            <!-- Corpo do Card -->
+            <div class="space-y-3 mb-6 flex-1">
+              <div class="flex items-center justify-between text-sm">
+                  <span class="text-gray-500 flex items-center gap-2"><i class="ph ph-briefcase"></i> ${cliente.servico}</span>
+                  <span class="prioridade-badge prioridade-${cliente.prioridade}">${cliente.prioridade}</span>
+              </div>
+              <div class="flex items-center gap-2 text-sm text-gray-600 font-mono bg-gray-50/50 p-2 rounded border border-gray-100">
+                 <span class="text-gray-400">R$</span> <span class="font-bold text-gray-700 text-base">${parseFloat(cliente.valor || 0).toFixed(2)}</span>
+              </div>
+               ${cliente.obs ? `<p class="text-xs text-gray-400 italic line-clamp-2 mt-2">"${cliente.obs}"</p>` : ''}
+            </div>
+
+            <!-- Footer Ações -->
+            <div class="pt-4 border-t border-gray-100/50 flex flex-wrap gap-2 mt-auto">
+               <button onclick="window.abrirZap('${zapLink}')" class="action-btn btn-whatsapp" title="Chamar no WhatsApp">
+                  <i class="ph ph-whatsapp-logo text-lg"></i>
+               </button>
+               <div class="ml-auto flex gap-2">
+                  <button onclick="window.editarCliente('${cliente.id}')" class="action-btn btn-edit" title="Editar">
+                      <i class="ph ph-pencil-simple text-lg"></i> Editar
+                  </button>
+                  <button onclick="window.deletarCliente('${cliente.id}')" class="action-btn btn-delete" title="Excluir">
+                      <i class="ph ph-trash text-lg"></i>
+                  </button>
+               </div>
+            </div>
+          `;
+          listaClientes.appendChild(card);
+        });
       }
 
-      clientesFiltrados.forEach(cliente => {
-        const card = document.createElement('div');
-        
-        // Determinar classes baseadas nos dados
-        const bordaClass = `borda-${cliente.prioridade}`; // borda-alta, borda-média, borda-baixa
-        const bgClass = cliente.status === 'entregue' ? 'bg-entregue' : 'bg-realizando';
-        
-        card.className = `card-animado p-6 rounded-xl shadow-sm border border-gray-100 relative group flex flex-col ${bordaClass} ${bgClass}`;
-
-        // Link do WhatsApp
-        const zapLink = `https://wa.me/55${cliente.contato.replace(/\D/g, '')}`;
-
-        card.innerHTML = `
-          <!-- Header do Card -->
-          <div class="flex justify-between items-start mb-4">
-            <div>
-              <h3 class="font-bold text-lg text-gray-800 leading-tight">${cliente.nome}</h3>
-              <p class="text-sm text-gray-500 font-medium">${cliente.empresa || 'Particular'}</p>
-            </div>
-            <span class="status-badge status-${cliente.status}">${cliente.status}</span>
-          </div>
-          
-          <!-- Corpo do Card -->
-          <div class="space-y-3 mb-6 flex-1">
-            <div class="flex items-center justify-between text-sm">
-                <span class="text-gray-500 flex items-center gap-2"><i class="ph ph-briefcase"></i> ${cliente.servico}</span>
-                <span class="prioridade-badge prioridade-${cliente.prioridade}">${cliente.prioridade}</span>
-            </div>
-            <div class="flex items-center gap-2 text-sm text-gray-600 font-mono bg-gray-50/50 p-2 rounded border border-gray-100">
-               <span class="text-gray-400">R$</span> <span class="font-bold text-gray-700 text-base">${parseFloat(cliente.valor).toFixed(2)}</span>
-            </div>
-             ${cliente.obs ? `<p class="text-xs text-gray-400 italic line-clamp-2 mt-2">"${cliente.obs}"</p>` : ''}
-          </div>
-
-          <!-- Footer Ações -->
-          <div class="pt-4 border-t border-gray-100/50 flex flex-wrap gap-2 mt-auto">
-             <button onclick="window.open('${zapLink}', '_blank')" class="action-btn btn-whatsapp" title="Chamar no WhatsApp">
-                <i class="ph ph-whatsapp-logo text-lg"></i>
-             </button>
-             <div class="ml-auto flex gap-2">
-                <button onclick="editarCliente(${cliente.id})" class="action-btn btn-edit" title="Editar">
-                    <i class="ph ph-pencil-simple text-lg"></i> Editar
-                </button>
-                <button onclick="deletarCliente(${cliente.id})" class="action-btn btn-delete" title="Excluir">
-                    <i class="ph ph-trash text-lg"></i>
-                </button>
-             </div>
-          </div>
-        `;
-        listaClientes.appendChild(card);
-      });
+      // Atualiza Totais
+      totalValorEl.textContent = formatarMoeda(totalValor);
+      totalRealizandoEl.textContent = totalRealizando;
+      totalEntregueEl.textContent = totalEntregue;
+      totalClientesEl.textContent = clientes.length;
     }
 
-    // --- Operações CRUD ---
+    // --- Funções Globais (para onclick no HTML) ---
+    
+    window.abrirZap = (url) => window.open(url, '_blank');
 
-    function abrirModal(editar = false) {
-      modalCliente.classList.add('show'); // Usa classe CSS para animação
-      if (!editar) {
-        formCliente.reset();
-        document.getElementById('tituloModal').textContent = 'Novo Cliente';
-        document.getElementById('dataCriacao').valueAsDate = new Date();
-        clienteEditandoId = null;
-      } else {
+    window.editarCliente = (id) => {
+      const cliente = clientes.find(c => c.id === id);
+      if (cliente) {
+        preencherFormulario(cliente);
+        editando = true;
+        clienteIdAtual = id;
         document.getElementById('tituloModal').textContent = 'Editar Cliente';
+        modalCliente.classList.add('show');
       }
+    };
+
+    window.deletarCliente = (id) => {
+      if(confirm('Tem certeza que deseja excluir este cliente do banco de dados?')) {
+        remove(ref(db, `clientes/${id}`));
+      }
+    };
+
+    // --- Funções CRUD e UI ---
+
+    function abrirModal() {
+      limparFormulario();
+      editando = false;
+      clienteIdAtual = null;
+      document.getElementById('tituloModal').textContent = 'Novo Cliente';
+      document.getElementById('dataCriacao').valueAsDate = new Date();
+      modalCliente.classList.add('show');
     }
 
     function fecharModal() {
       modalCliente.classList.remove('show');
-      setTimeout(() => {
-          clienteEditandoId = null;
-      }, 300); // Espera animação acabar
     }
 
-    formCliente.addEventListener('submit', (e) => {
-      e.preventDefault();
-      
-      const novoCliente = {
-        id: clienteEditandoId || Date.now(),
+    function obterDadosFormulario() {
+      return {
         nome: document.getElementById('nomeCliente').value,
         empresa: document.getElementById('empresaCliente').value,
         contato: document.getElementById('contatoCliente').value,
         valor: parseFloat(document.getElementById('valorCliente').value) || 0,
-        servico: document.getElementById('tipoServico').value,
+        servico: document.getElementById('tipoServico').value, // Mapeado para select tipoServico
         prioridade: document.getElementById('prioridadeCliente').value,
         status: document.getElementById('statusCliente').value,
         data: document.getElementById('dataCriacao').value,
         obs: document.getElementById('obsCliente').value
       };
+    }
 
-      if (clienteEditandoId) {
-        const index = clientes.findIndex(c => c.id === clienteEditandoId);
-        if (index !== -1) clientes[index] = novoCliente;
-      } else {
-        clientes.push(novoCliente);
+    function preencherFormulario(cliente) {
+      document.getElementById('nomeCliente').value = cliente.nome || '';
+      document.getElementById('empresaCliente').value = cliente.empresa || '';
+      document.getElementById('contatoCliente').value = cliente.contato || '';
+      document.getElementById('valorCliente').value = cliente.valor || '';
+      document.getElementById('tipoServico').value = cliente.servico || '';
+      document.getElementById('prioridadeCliente').value = cliente.prioridade || 'baixa';
+      document.getElementById('statusCliente').value = cliente.status || 'realizando';
+      document.getElementById('dataCriacao').value = cliente.data || '';
+      document.getElementById('obsCliente').value = cliente.obs || '';
+    }
+
+    function limparFormulario() {
+      document.getElementById('formCliente').reset();
+    }
+
+    function salvarCliente() {
+      const cliente = obterDadosFormulario();
+      if (!cliente.nome) {
+        alert("O nome é obrigatório!");
+        return;
       }
 
-      salvarDados();
-      fecharModal();
+      if (editando) {
+        update(ref(db, `clientes/${clienteIdAtual}`), cliente)
+          .then(() => fecharModal())
+          .catch((err) => alert("Erro ao atualizar: " + err));
+      } else {
+        push(clientesRef, cliente)
+          .then(() => fecharModal())
+          .catch((err) => alert("Erro ao salvar: " + err));
+      }
+    }
+
+    // --- Event Listeners ---
+    
+    addClienteBtn.addEventListener('click', abrirModal);
+    cancelarBtn.addEventListener('click', fecharModal);
+    fecharModalX.addEventListener('click', fecharModal);
+    salvarBtn.addEventListener('click', salvarCliente); // Evento direto no botão, não submit
+    
+    // Fechar ao clicar fora
+    modalCliente.addEventListener('click', (e) => {
+        if (e.target === modalCliente) fecharModal();
     });
 
-    window.editarCliente = (id) => {
-      const cliente = clientes.find(c => c.id === id);
-      if (!cliente) return;
+    // Filtros
+    [buscarClienteInput, filtroStatus, filtroPrioridade].forEach(el => {
+        el.addEventListener('input', renderizarClientes);
+    });
 
-      clienteEditandoId = id;
-      document.getElementById('nomeCliente').value = cliente.nome;
-      document.getElementById('empresaCliente').value = cliente.empresa;
-      document.getElementById('contatoCliente').value = cliente.contato;
-      document.getElementById('valorCliente').value = cliente.valor;
-      document.getElementById('tipoServico').value = cliente.servico;
-      document.getElementById('prioridadeCliente').value = cliente.prioridade;
-      document.getElementById('statusCliente').value = cliente.status;
-      document.getElementById('dataCriacao').value = cliente.data;
-      document.getElementById('obsCliente').value = cliente.obs;
-
-      abrirModal(true);
-    };
-
-    window.deletarCliente = (id) => {
-      if(confirm('Tem certeza que deseja excluir este cliente?')) {
-        clientes = clientes.filter(c => c.id !== id);
-        salvarDados();
-      }
-    };
-
-    // --- LIMPAR TUDO ---
+    // Limpar Tudo
     limparTudoBtn.addEventListener('click', () => {
-      const confirmacao = confirm("⚠️ ATENÇÃO: Você vai apagar TODOS os clientes.\n\nDeseja continuar?");
-      
-      if (confirmacao) {
-        const segundaConfirmacao = confirm("Certeza absoluta? Os dados serão perdidos.");
-        if (segundaConfirmacao) {
-            clientes = [];
-            salvarDados();
-            // Feedback visual rápido
-            limparTudoBtn.innerHTML = '<i class="ph ph-check"></i> Limpo!';
-            setTimeout(() => {
-                 limparTudoBtn.innerHTML = '<i class="ph ph-trash text-xl group-hover:animate-bounce"></i> Limpar Tudo';
-            }, 2000);
+      if (confirm("⚠️ ATENÇÃO: Isso apagará TODOS os clientes do banco de dados PERMANENTEMENTE.\n\nDeseja continuar?")) {
+        if (confirm("Última chance: Tem certeza absoluta?")) {
+            set(clientesRef, null);
         }
       }
     });
 
-    // --- Importar / Exportar ---
+    // Exportar
     exportarBtn.addEventListener('click', () => {
-      const dataStr = JSON.stringify(clientes, null, 2);
-      const blob = new Blob([dataStr], { type: "application/json" });
+      const blob = new Blob([JSON.stringify(clientes, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = "crm_backup.json";
+      a.download = `backup_crm_firebase_${new Date().toISOString().split('T')[0]}.json`;
       a.click();
     });
 
+    // Importar
     importarInput.addEventListener('change', (e) => {
       const file = e.target.files[0];
       if (!file) return;
+
       const reader = new FileReader();
       reader.onload = (event) => {
         try {
           const dados = JSON.parse(event.target.result);
           if (Array.isArray(dados)) {
-             clientes = confirm('Substituir lista atual?') ? dados : [...clientes, ...dados];
-             salvarDados();
-             alert('Importado com sucesso!');
+            if(confirm(`Deseja importar ${dados.length} clientes para o banco de dados?`)) {
+                dados.forEach(c => {
+                    const { id, ...semId } = c; // Remove ID antigo para gerar novo no Firebase
+                    push(clientesRef, semId);
+                });
+            }
+          } else {
+             alert('Formato JSON inválido.');
           }
-        } catch (e) { alert('Erro no arquivo JSON.'); }
+        } catch (err) {
+          alert('Erro ao ler arquivo: ' + err.message);
+        }
+        e.target.value = ''; // Reset input
       };
       reader.readAsText(file);
     });
-
-    // --- Event Listeners UI ---
-    addClienteBtn.addEventListener('click', () => abrirModal(false));
-    cancelarBtn.addEventListener('click', fecharModal);
-    fecharModalX.addEventListener('click', fecharModal);
-    
-    // Fechar modal ao clicar fora
-    modalCliente.addEventListener('click', (e) => {
-        if (e.target === modalCliente) fecharModal();
-    });
-
-    // Listeners de filtro
-    [buscarClienteInput, filtroStatus, filtroPrioridade].forEach(el => {
-        el.addEventListener('input', renderizarClientes);
-    });
-
-    // Inicialização
-    atualizarDashboard();
-    renderizarClientes();
 
   </script>
 </body>
