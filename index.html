@@ -5,152 +5,331 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>WA CRM - Azul Moderno</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Ícones Phosphor (opcional, para ícones bonitos nos botões) -->
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+
   <style>
     body {
       font-family: 'Inter', sans-serif;
     }
-    /* Estilos extras para barra de rolagem e transições */
-    ::-webkit-scrollbar {
-      width: 8px;
+    
+    /* --- CSS NOVO SOLICITADO --- */
+
+    /* Animações suaves */
+    .card-animado {
+      transition: transform 0.3s ease, box-shadow 0.3s ease;
     }
-    ::-webkit-scrollbar-track {
-      background: #f1f1f1;
+    .card-animado:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 12px 24px rgba(0, 0, 0, 0.08);
     }
-    ::-webkit-scrollbar-thumb {
-      background: #bfdbfe;
-      border-radius: 4px;
+
+    /* Modal suave */
+    #modalCliente {
+      transition: opacity 0.3s ease, visibility 0.3s ease;
+      opacity: 0;
+      visibility: hidden; /* Adicionado para garantir que o modal não bloqueie cliques quando invisível */
+      z-index: 50;
     }
-    ::-webkit-scrollbar-thumb:hover {
-      background: #60a5fa;
+    #modalCliente.show {
+      display: flex !important;
+      opacity: 1;
+      visibility: visible;
+      transform: scale(1);
     }
+
+    /* Botões */
+    .action-btn {
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 0.875rem;
+      font-weight: 500;
+      margin-right: 4px;
+      cursor: pointer;
+      border: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: background 0.2s ease, transform 0.1s;
+    }
+    .action-btn:active {
+        transform: scale(0.95);
+    }
+    .btn-edit {
+      background-color: #6366f1;
+      color: white;
+    }
+    .btn-edit:hover {
+      background-color: #4f46e5;
+    }
+    .btn-whatsapp {
+      background-color: #22c55e;
+      color: white;
+    }
+    .btn-whatsapp:hover {
+      background-color: #16a34a;
+    }
+    .btn-delete {
+      background-color: #ef4444;
+      color: white;
+    }
+    .btn-delete:hover {
+      background-color: #dc2626;
+    }
+
+    /* Tags de status e prioridade */
+    .status-badge {
+      padding: 4px 8px;
+      border-radius: 999px;
+      font-size: 0.70rem;
+      font-weight: bold;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .status-realizando {
+      background-color: #3b82f6;
+      color: white;
+    }
+    .status-entregue {
+      background-color: #10b981;
+      color: white;
+    }
+
+    .prioridade-badge {
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        display: inline-block;
+    }
+    .prioridade-alta {
+      background-color: #fee2e2;
+      color: #dc2626;
+      border: 1px solid #fecaca;
+    }
+    .prioridade-média {
+      background-color: #fef3c7;
+      color: #d97706;
+      border: 1px solid #fde68a;
+    }
+    .prioridade-baixa {
+      background-color: #dbeafe;
+      color: #2563eb;
+      border: 1px solid #bfdbfe;
+    }
+
+    /* Cores de fundo suave pelo status (Cards) */
+    .bg-entregue {
+      background-color: #f0fdf4 !important; /* Verde muito suave */
+    }
+    .bg-realizando {
+      background-color: #fff !important; /* Branco padrão */
+    }
+
+    /* Cores de borda esquerda por prioridade */
+    .borda-alta {
+      border-left: 4px solid #ef4444 !important;
+    }
+    .borda-média { /* Ajustado para acento */
+      border-left: 4px solid #f59e0b !important;
+    }
+    .borda-baixa {
+      border-left: 4px solid #3b82f6 !important;
+    } 
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #f1f1f1; }
+    ::-webkit-scrollbar-thumb { background: #bfdbfe; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #60a5fa; }
   </style>
 </head>
-<body class="bg-blue-50 text-gray-800">
+<body class="bg-gray-50 text-gray-800">
   <div id="layoutContainer" class="flex flex-col lg:flex-row min-h-screen">
     <!-- Sidebar -->
-    <aside class="lg:block w-full lg:w-72 bg-blue-800 text-white p-6 flex flex-col shadow-lg">
-      <h1 class="text-3xl font-bold mb-4">WA CRM</h1>
-      <p class="text-sm opacity-80">Total de Serviços</p>
-      <p id="totalValor" class="text-4xl font-extrabold mb-6">R$ 0,00</p>
-
-      <button id="addClienteBtn" class="bg-white text-blue-800 px-4 py-3 rounded-xl font-semibold shadow hover:bg-blue-100 transition mb-2 flex items-center justify-center gap-2">
-        <span>+</span> Novo Cliente
-      </button>
+    <aside class="lg:block w-full lg:w-72 bg-blue-900 text-white p-6 flex flex-col shadow-xl z-10">
+      <div class="mb-8">
+          <h1 class="text-3xl font-bold tracking-tight">WA CRM</h1>
+          <div class="h-1 w-12 bg-blue-500 mt-2 rounded-full"></div>
+      </div>
       
-      <button id="exportarBtn" class="bg-blue-700 text-white border border-blue-600 px-4 py-3 rounded-xl font-semibold shadow hover:bg-blue-600 transition mb-2 flex items-center justify-center gap-2">
-        <span>⬇️</span> Exportar JSON
-      </button>
-      
-      <label for="importarInput" class="mb-6">
-        <div class="bg-blue-700 text-white border border-blue-600 px-4 py-3 rounded-xl font-semibold shadow text-center cursor-pointer hover:bg-blue-600 transition flex items-center justify-center gap-2">
-          <span>⬆️</span> Importar JSON
-        </div>
-        <input type="file" id="importarInput" accept=".json" class="hidden" />
-      </label>
+      <p class="text-xs uppercase tracking-wider text-blue-300 font-semibold mb-1">Faturamento Total</p>
+      <p id="totalValor" class="text-3xl font-extrabold mb-8 tracking-tight">R$ 0,00</p>
 
-      <!-- NOVO BOTÃO ADICIONADO AQUI -->
-      <div class="mt-auto pt-4 border-t border-blue-600">
-        <button id="limparTudoBtn" class="w-full bg-red-600 text-white px-4 py-3 rounded-xl font-semibold shadow hover:bg-red-700 transition flex items-center justify-center gap-2">
-          <span>🗑️</span> Limpar Todos
+      <div class="space-y-3">
+        <button id="addClienteBtn" class="w-full bg-white text-blue-900 px-4 py-3 rounded-xl font-bold shadow hover:bg-blue-50 transition flex items-center justify-center gap-2 transform active:scale-95 duration-200">
+          <i class="ph ph-plus-circle text-xl"></i> Novo Cliente
+        </button>
+        
+        <button id="exportarBtn" class="w-full bg-blue-800 text-white border border-blue-700 px-4 py-3 rounded-xl font-semibold shadow hover:bg-blue-700 transition flex items-center justify-center gap-2">
+          <i class="ph ph-download-simple text-xl"></i> Exportar
+        </button>
+        
+        <label for="importarInput" class="block w-full">
+          <div class="w-full bg-blue-800 text-white border border-blue-700 px-4 py-3 rounded-xl font-semibold shadow text-center cursor-pointer hover:bg-blue-700 transition flex items-center justify-center gap-2">
+            <i class="ph ph-upload-simple text-xl"></i> Importar
+          </div>
+          <input type="file" id="importarInput" accept=".json" class="hidden" />
+        </label>
+      </div>
+
+      <!-- BOTÃO LIMPAR TUDO -->
+      <div class="mt-auto pt-6 border-t border-blue-800">
+        <button id="limparTudoBtn" class="w-full bg-red-500/10 border border-red-500/30 text-red-200 hover:bg-red-500 hover:text-white px-4 py-3 rounded-xl font-semibold transition flex items-center justify-center gap-2 group">
+          <i class="ph ph-trash text-xl group-hover:animate-bounce"></i> Limpar Tudo
         </button>
       </div>
     </aside>
 
     <!-- Conteúdo principal -->
-    <main class="flex-1 p-4 sm:p-6 overflow-x-hidden">
+    <main class="flex-1 p-4 sm:p-8 overflow-x-hidden bg-gray-50">
       <!-- Dashboard Resumo -->
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-        <div class="bg-white border-l-4 border-blue-500 p-4 rounded-lg shadow">
-          <h3 class="text-sm text-gray-500">Total Realizando</h3>
-          <p id="totalRealizando" class="text-2xl font-bold text-blue-700">0</p>
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+        <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-center">
+          <h3 class="text-xs uppercase font-semibold text-gray-400 mb-1">Em Andamento</h3>
+          <div class="flex items-center gap-2">
+             <div class="w-2 h-2 rounded-full bg-blue-500"></div>
+             <p id="totalRealizando" class="text-2xl font-bold text-gray-800">0</p>
+          </div>
         </div>
-        <div class="bg-white border-l-4 border-green-500 p-4 rounded-lg shadow">
-          <h3 class="text-sm text-gray-500">Total Entregue</h3>
-          <p id="totalEntregue" class="text-2xl font-bold text-green-700">0</p>
+        <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-center">
+          <h3 class="text-xs uppercase font-semibold text-gray-400 mb-1">Finalizados</h3>
+          <div class="flex items-center gap-2">
+             <div class="w-2 h-2 rounded-full bg-green-500"></div>
+             <p id="totalEntregue" class="text-2xl font-bold text-gray-800">0</p>
+          </div>
         </div>
-        <div class="bg-white border-l-4 border-gray-500 p-4 rounded-lg shadow">
-          <h3 class="text-sm text-gray-500">Total de Clientes</h3>
-          <p id="totalClientes" class="text-2xl font-bold text-gray-800">0</p>
+        <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-center">
+          <h3 class="text-xs uppercase font-semibold text-gray-400 mb-1">Total Clientes</h3>
+          <div class="flex items-center gap-2">
+             <div class="w-2 h-2 rounded-full bg-gray-500"></div>
+             <p id="totalClientes" class="text-2xl font-bold text-gray-800">0</p>
+          </div>
         </div>
       </div>
 
-      <!-- Barra de ações -->
-      <div class="flex flex-wrap justify-between items-center gap-3 mb-6">
-        <div class="flex items-center gap-2 w-full sm:w-auto">
-          <input type="text" id="buscarCliente" placeholder="🔍 Buscar clientes..." class="p-2 pl-10 border rounded-lg w-full sm:w-64 bg-white shadow-sm focus:ring-2 focus:ring-blue-300" />
+      <!-- Barra de Ferramentas -->
+      <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-8 flex flex-col md:flex-row gap-4 justify-between items-center">
+        <div class="relative w-full md:w-96">
+            <i class="ph ph-magnifying-glass absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"></i>
+            <input type="text" id="buscarCliente" placeholder="Buscar por nome ou empresa..." class="pl-10 pr-4 py-2.5 w-full border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition" />
+        </div>
+        
+        <div class="flex gap-2 w-full md:w-auto overflow-x-auto pb-2 md:pb-0">
+            <select id="filtroStatus" class="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer bg-white">
+                <option value="">Status</option>
+                <option value="realizando">Realizando</option>
+                <option value="entregue">Entregue</option>
+            </select>
+            <select id="filtroPrioridade" class="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer bg-white">
+                <option value="">Prioridade</option>
+                <option value="baixa">Baixa</option>
+                <option value="média">Média</option>
+                <option value="alta">Alta</option>
+            </select>
         </div>
       </div>
 
-      <!-- Lista de filtros -->
-      <div class="flex flex-col md:flex-row md:items-center md:gap-4 gap-3 mb-6">
-        <select id="filtroStatus" class="p-3 border rounded-lg w-full md:w-auto bg-white shadow-sm">
-          <option value="">Todas Situações</option>
-          <option value="realizando">Realizando</option>
-          <option value="entregue">Entregue</option>
-        </select>
-        <select id="filtroServico" class="p-3 border rounded-lg w-full md:w-auto bg-white shadow-sm">
-          <option value="">Todos Serviços</option>
-          <option value="logotipo">Logotipo</option>
-          <option value="site">Site</option>
-          <option value="anuncio">Anúncio</option>
-        </select>
-        <select id="filtroPrioridade" class="p-3 border rounded-lg w-full md:w-auto bg-white shadow-sm">
-          <option value="">Todas Prioridades</option>
-          <option value="baixa">Baixa</option>
-          <option value="média">Média</option>
-          <option value="alta">Alta</option>
-        </select>
-      </div>
-
-      <!-- Cards -->
-      <div id="listaClientes" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-        <!-- Os cards serão gerados via JavaScript -->
+      <!-- Grid de Cards -->
+      <div id="listaClientes" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+        <!-- Cards gerados via JS -->
       </div>
     </main>
   </div>
 
-  <!-- Modal -->
-  <div id="modalCliente" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-    <div class="bg-white p-6 sm:p-8 rounded-xl shadow-2xl w-full max-w-2xl transform transition-all">
-      <h2 class="text-2xl font-bold mb-6 text-blue-800 flex justify-between items-center">
-        <span id="tituloModal">Novo Cliente</span>
-        <button id="fecharModalX" class="text-gray-400 hover:text-gray-600">&times;</button>
-      </h2>
-      <form id="formCliente" class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <input type="hidden" id="idCliente">
-        <input id="nomeCliente" class="border p-3 rounded-lg w-full focus:ring-2 focus:ring-blue-500 outline-none" type="text" placeholder="Nome do Cliente" required>
-        <input id="empresaCliente" class="border p-3 rounded-lg w-full focus:ring-2 focus:ring-blue-500 outline-none" type="text" placeholder="Nome da Empresa">
-        <input id="contatoCliente" class="border p-3 rounded-lg w-full focus:ring-2 focus:ring-blue-500 outline-none" type="text" placeholder="WhatsApp / Email">
-        <input id="valorCliente" class="border p-3 rounded-lg w-full focus:ring-2 focus:ring-blue-500 outline-none" type="number" step="0.01" placeholder="Valor (R$)">
+  <!-- Modal com Overlay -->
+  <div id="modalCliente" class="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white w-full max-w-2xl rounded-2xl shadow-2xl transform transition-all flex flex-col max-h-[90vh]">
+      
+      <!-- Modal Header -->
+      <div class="p-6 border-b border-gray-100 flex justify-between items-center">
+        <h2 class="text-xl font-bold text-gray-800 flex items-center gap-2">
+            <span class="w-1 h-6 bg-blue-600 rounded-full block"></span>
+            <span id="tituloModal">Novo Cliente</span>
+        </h2>
+        <button id="fecharModalX" class="text-gray-400 hover:text-red-500 hover:bg-red-50 p-2 rounded-full transition">
+            <i class="ph ph-x text-lg"></i>
+        </button>
+      </div>
 
-        <select id="tipoServico" class="border p-3 rounded-lg w-full focus:ring-2 focus:ring-blue-500 outline-none">
-          <option value="logotipo">Logotipo</option>
-          <option value="site">Site</option>
-          <option value="anuncio">Anúncio</option>
-          <option value="outro">Outro</option>
-        </select>
-        <select id="prioridadeCliente" class="border p-3 rounded-lg w-full focus:ring-2 focus:ring-blue-500 outline-none">
-          <option value="baixa">Baixa Prioridade</option>
-          <option value="média">Média Prioridade</option>
-          <option value="alta">Alta Prioridade</option>
-        </select>
-        <select id="statusCliente" class="border p-3 rounded-lg w-full focus:ring-2 focus:ring-blue-500 outline-none">
-          <option value="realizando">Realizando</option>
-          <option value="entregue">Entregue</option>
-        </select>
-        <input id="dataCriacao" class="border p-3 rounded-lg w-full focus:ring-2 focus:ring-blue-500 outline-none" type="date">
-        <textarea id="obsCliente" class="border p-3 rounded-lg w-full md:col-span-2 focus:ring-2 focus:ring-blue-500 outline-none" rows="3" placeholder="Observações do projeto..."></textarea>
-        
-        <div class="md:col-span-2 flex justify-end gap-3 mt-4">
-          <button type="button" id="cancelarBtn" class="bg-gray-200 text-gray-700 px-6 py-2 rounded-lg hover:bg-gray-300 transition font-medium">Cancelar</button>
-          <button type="submit" id="salvarClienteBtn" class="bg-blue-700 text-white px-6 py-2 rounded-lg hover:bg-blue-800 transition font-medium">Salvar Cliente</button>
-        </div>
-      </form>
+      <!-- Modal Body (Scrollable) -->
+      <div class="p-6 overflow-y-auto">
+          <form id="formCliente" class="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <input type="hidden" id="idCliente">
+            
+            <div class="col-span-1 md:col-span-2">
+                <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Nome Completo</label>
+                <input id="nomeCliente" class="w-full border border-gray-200 p-3 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition" type="text" placeholder="Ex: João da Silva" required>
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Empresa</label>
+                <input id="empresaCliente" class="w-full border border-gray-200 p-3 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition" type="text" placeholder="Ex: Tech Solutions">
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Contato (WhatsApp/Email)</label>
+                <input id="contatoCliente" class="w-full border border-gray-200 p-3 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition" type="text" placeholder="(00) 00000-0000">
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Valor do Projeto</label>
+                <div class="relative">
+                    <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">R$</span>
+                    <input id="valorCliente" class="w-full border border-gray-200 p-3 pl-10 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition" type="number" step="0.01" placeholder="0,00">
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Data Início</label>
+                <input id="dataCriacao" class="w-full border border-gray-200 p-3 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition" type="date">
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Serviço</label>
+                <select id="tipoServico" class="w-full border border-gray-200 p-3 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition bg-white">
+                    <option value="logotipo">Logotipo</option>
+                    <option value="site">Site Institucional</option>
+                    <option value="anuncio">Gestão de Tráfego</option>
+                    <option value="identidade">Identidade Visual</option>
+                    <option value="outro">Outro</option>
+                </select>
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Prioridade</label>
+                <select id="prioridadeCliente" class="w-full border border-gray-200 p-3 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition bg-white">
+                    <option value="baixa">Baixa</option>
+                    <option value="média">Média</option>
+                    <option value="alta">Alta</option>
+                </select>
+            </div>
+
+            <div>
+                <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Status Atual</label>
+                <select id="statusCliente" class="w-full border border-gray-200 p-3 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition bg-white">
+                    <option value="realizando">Realizando</option>
+                    <option value="entregue">Entregue</option>
+                </select>
+            </div>
+
+            <div class="col-span-1 md:col-span-2">
+                <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Observações</label>
+                <textarea id="obsCliente" class="w-full border border-gray-200 p-3 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition" rows="3" placeholder="Detalhes adicionais..."></textarea>
+            </div>
+          </form>
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="p-6 border-t border-gray-100 flex justify-end gap-3 bg-gray-50 rounded-b-2xl">
+          <button id="cancelarBtn" class="px-6 py-2.5 rounded-lg border border-gray-300 text-gray-700 font-medium hover:bg-gray-100 transition">Cancelar</button>
+          <button type="submit" form="formCliente" id="salvarClienteBtn" class="px-6 py-2.5 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700 shadow-lg shadow-blue-500/30 transition">Salvar Cliente</button>
+      </div>
     </div>
   </div>
 
-  <!-- SCRIPT INTEGRADO -->
+  <!-- SCRIPT -->
   <script>
     // --- Estado da Aplicação ---
     let clientes = JSON.parse(localStorage.getItem('wa_crm_clientes')) || [];
@@ -167,7 +346,6 @@
     // Inputs de Filtro
     const buscarClienteInput = document.getElementById('buscarCliente');
     const filtroStatus = document.getElementById('filtroStatus');
-    const filtroServico = document.getElementById('filtroServico');
     const filtroPrioridade = document.getElementById('filtroPrioridade');
 
     // Botões de Ação
@@ -203,22 +381,22 @@
 
       // Filtros
       const termo = buscarClienteInput.value.toLowerCase();
-      const status = filtroStatus.value;
-      const servico = filtroServico.value;
-      const prioridade = filtroPrioridade.value;
+      const statusFiltro = filtroStatus.value;
+      const prioridadeFiltro = filtroPrioridade.value;
 
       const clientesFiltrados = clientes.filter(c => {
         const matchNome = c.nome.toLowerCase().includes(termo) || (c.empresa && c.empresa.toLowerCase().includes(termo));
-        const matchStatus = status ? c.status === status : true;
-        const matchServico = servico ? c.servico === servico : true;
-        const matchPrioridade = prioridade ? c.prioridade === prioridade : true;
-        return matchNome && matchStatus && matchServico && matchPrioridade;
+        const matchStatus = statusFiltro ? c.status === statusFiltro : true;
+        const matchPrioridade = prioridadeFiltro ? c.prioridade === prioridadeFiltro : true;
+        return matchNome && matchStatus && matchPrioridade;
       });
 
       if (clientesFiltrados.length === 0) {
         listaClientes.innerHTML = `
-          <div class="col-span-full text-center py-10 text-gray-400">
-            <p class="text-xl">Nenhum cliente encontrado.</p>
+          <div class="col-span-full flex flex-col items-center justify-center py-16 text-gray-400">
+            <i class="ph ph-magnifying-glass text-4xl mb-3"></i>
+            <p class="text-lg font-medium">Nenhum cliente encontrado.</p>
+            <p class="text-sm">Tente ajustar seus filtros ou adicione um novo.</p>
           </div>
         `;
         return;
@@ -226,38 +404,50 @@
 
       clientesFiltrados.forEach(cliente => {
         const card = document.createElement('div');
-        card.className = 'bg-white p-5 rounded-xl shadow hover:shadow-md transition border border-gray-100 relative group';
         
-        // Cores baseadas no status/prioridade
-        const statusColor = cliente.status === 'entregue' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700';
-        const prioridadeColor = cliente.prioridade === 'alta' ? 'text-red-500' : (cliente.prioridade === 'média' ? 'text-yellow-600' : 'text-gray-500');
+        // Determinar classes baseadas nos dados
+        const bordaClass = `borda-${cliente.prioridade}`; // borda-alta, borda-média, borda-baixa
+        const bgClass = cliente.status === 'entregue' ? 'bg-entregue' : 'bg-realizando';
+        
+        card.className = `card-animado p-6 rounded-xl shadow-sm border border-gray-100 relative group flex flex-col ${bordaClass} ${bgClass}`;
+
+        // Link do WhatsApp
+        const zapLink = `https://wa.me/55${cliente.contato.replace(/\D/g, '')}`;
 
         card.innerHTML = `
-          <div class="flex justify-between items-start mb-3">
+          <!-- Header do Card -->
+          <div class="flex justify-between items-start mb-4">
             <div>
-              <h3 class="font-bold text-lg text-gray-800">${cliente.nome}</h3>
-              <p class="text-sm text-gray-500">${cliente.empresa || 'Particular'}</p>
+              <h3 class="font-bold text-lg text-gray-800 leading-tight">${cliente.nome}</h3>
+              <p class="text-sm text-gray-500 font-medium">${cliente.empresa || 'Particular'}</p>
             </div>
-            <span class="text-xs font-semibold px-2 py-1 rounded-full ${statusColor} uppercase tracking-wide">${cliente.status}</span>
+            <span class="status-badge status-${cliente.status}">${cliente.status}</span>
           </div>
           
-          <div class="space-y-2 mb-4">
-            <p class="text-sm text-gray-600 flex items-center gap-2">
-              <span class="w-4">💼</span> ${cliente.servico}
-            </p>
-            <p class="text-sm text-gray-600 flex items-center gap-2">
-              <span class="w-4">💰</span> ${formatarMoeda(cliente.valor)}
-            </p>
-             <p class="text-sm ${prioridadeColor} flex items-center gap-2">
-              <span class="w-4">🔥</span> Prioridade ${cliente.prioridade}
-            </p>
+          <!-- Corpo do Card -->
+          <div class="space-y-3 mb-6 flex-1">
+            <div class="flex items-center justify-between text-sm">
+                <span class="text-gray-500 flex items-center gap-2"><i class="ph ph-briefcase"></i> ${cliente.servico}</span>
+                <span class="prioridade-badge prioridade-${cliente.prioridade}">${cliente.prioridade}</span>
+            </div>
+            <div class="flex items-center gap-2 text-sm text-gray-600 font-mono bg-gray-50/50 p-2 rounded border border-gray-100">
+               <span class="text-gray-400">R$</span> <span class="font-bold text-gray-700 text-base">${parseFloat(cliente.valor).toFixed(2)}</span>
+            </div>
+             ${cliente.obs ? `<p class="text-xs text-gray-400 italic line-clamp-2 mt-2">"${cliente.obs}"</p>` : ''}
           </div>
 
-          <div class="border-t pt-3 flex justify-between items-center mt-auto">
-             <span class="text-xs text-gray-400">${new Date(cliente.data).toLocaleDateString('pt-BR')}</span>
-             <div class="flex gap-2">
-                <button onclick="editarCliente(${cliente.id})" class="text-blue-600 hover:bg-blue-50 p-1.5 rounded-md transition" title="Editar">✏️</button>
-                <button onclick="deletarCliente(${cliente.id})" class="text-red-500 hover:bg-red-50 p-1.5 rounded-md transition" title="Excluir">🗑️</button>
+          <!-- Footer Ações -->
+          <div class="pt-4 border-t border-gray-100/50 flex flex-wrap gap-2 mt-auto">
+             <button onclick="window.open('${zapLink}', '_blank')" class="action-btn btn-whatsapp" title="Chamar no WhatsApp">
+                <i class="ph ph-whatsapp-logo text-lg"></i>
+             </button>
+             <div class="ml-auto flex gap-2">
+                <button onclick="editarCliente(${cliente.id})" class="action-btn btn-edit" title="Editar">
+                    <i class="ph ph-pencil-simple text-lg"></i> Editar
+                </button>
+                <button onclick="deletarCliente(${cliente.id})" class="action-btn btn-delete" title="Excluir">
+                    <i class="ph ph-trash text-lg"></i>
+                </button>
              </div>
           </div>
         `;
@@ -268,7 +458,7 @@
     // --- Operações CRUD ---
 
     function abrirModal(editar = false) {
-      modalCliente.classList.remove('hidden');
+      modalCliente.classList.add('show'); // Usa classe CSS para animação
       if (!editar) {
         formCliente.reset();
         document.getElementById('tituloModal').textContent = 'Novo Cliente';
@@ -280,8 +470,10 @@
     }
 
     function fecharModal() {
-      modalCliente.classList.add('hidden');
-      clienteEditandoId = null;
+      modalCliente.classList.remove('show');
+      setTimeout(() => {
+          clienteEditandoId = null;
+      }, 300); // Espera animação acabar
     }
 
     formCliente.addEventListener('submit', (e) => {
@@ -292,7 +484,7 @@
         nome: document.getElementById('nomeCliente').value,
         empresa: document.getElementById('empresaCliente').value,
         contato: document.getElementById('contatoCliente').value,
-        valor: parseFloat(document.getElementById('valorCliente').value),
+        valor: parseFloat(document.getElementById('valorCliente').value) || 0,
         servico: document.getElementById('tipoServico').value,
         prioridade: document.getElementById('prioridadeCliente').value,
         status: document.getElementById('statusCliente').value,
@@ -336,16 +528,20 @@
       }
     };
 
-    // --- NOVA FUNÇÃO: LIMPAR TUDO ---
+    // --- LIMPAR TUDO ---
     limparTudoBtn.addEventListener('click', () => {
-      const confirmacao = confirm("⚠️ ATENÇÃO: Você está prestes a apagar TODOS os clientes do sistema.\n\nEssa ação é irreversível. Deseja continuar?");
+      const confirmacao = confirm("⚠️ ATENÇÃO: Você vai apagar TODOS os clientes.\n\nDeseja continuar?");
       
       if (confirmacao) {
-        const segundaConfirmacao = confirm("Tem certeza absoluta? Todos os dados serão perdidos para sempre.");
+        const segundaConfirmacao = confirm("Certeza absoluta? Os dados serão perdidos.");
         if (segundaConfirmacao) {
             clientes = [];
             salvarDados();
-            alert("Base de dados limpa com sucesso!");
+            // Feedback visual rápido
+            limparTudoBtn.innerHTML = '<i class="ph ph-check"></i> Limpo!';
+            setTimeout(() => {
+                 limparTudoBtn.innerHTML = '<i class="ph ph-trash text-xl group-hover:animate-bounce"></i> Limpar Tudo';
+            }, 2000);
         }
       }
     });
@@ -357,32 +553,23 @@
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = "backup_crm.json";
+      a.download = "crm_backup.json";
       a.click();
     });
 
     importarInput.addEventListener('change', (e) => {
       const file = e.target.files[0];
       if (!file) return;
-
       const reader = new FileReader();
       reader.onload = (event) => {
         try {
-          const dadosImportados = JSON.parse(event.target.result);
-          if (Array.isArray(dadosImportados)) {
-            if(confirm('Deseja substituir a lista atual (OK) ou adicionar aos existentes (Cancelar)?')) {
-                clientes = dadosImportados;
-            } else {
-                clientes = [...clientes, ...dadosImportados];
-            }
-            salvarDados();
-            alert('Dados importados com sucesso!');
-          } else {
-            alert('Arquivo JSON inválido.');
+          const dados = JSON.parse(event.target.result);
+          if (Array.isArray(dados)) {
+             clientes = confirm('Substituir lista atual?') ? dados : [...clientes, ...dados];
+             salvarDados();
+             alert('Importado com sucesso!');
           }
-        } catch (error) {
-          alert('Erro ao ler arquivo: ' + error.message);
-        }
+        } catch (e) { alert('Erro no arquivo JSON.'); }
       };
       reader.readAsText(file);
     });
@@ -392,8 +579,13 @@
     cancelarBtn.addEventListener('click', fecharModal);
     fecharModalX.addEventListener('click', fecharModal);
     
+    // Fechar modal ao clicar fora
+    modalCliente.addEventListener('click', (e) => {
+        if (e.target === modalCliente) fecharModal();
+    });
+
     // Listeners de filtro
-    [buscarClienteInput, filtroStatus, filtroServico, filtroPrioridade].forEach(el => {
+    [buscarClienteInput, filtroStatus, filtroPrioridade].forEach(el => {
         el.addEventListener('input', renderizarClientes);
     });
 
