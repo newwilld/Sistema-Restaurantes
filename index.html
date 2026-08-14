@@ -5,352 +5,57 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WA Sistema de Vendas</title>
     
-    <!-- Firebase SDKs -->
-    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-storage.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Inter', 'sans-serif'] },
+                    colors: {
+                        brand: {
+                            50: '#fef2f2',
+                            100: '#fee2e2',
+                            500: '#ef4444',
+                            600: '#dc2626',
+                            900: '#7f1d1d',
+                            dark: '#111827'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
     <style>
-        :root {
-            --primary: #e74c3c;
-            --secondary: #2c3e50;
-            --success: #27ae60;
-            --warning: #f39c12;
-            --danger: #e74c3c;
-            --background: #f5f7fa;
-            --card: #ffffff;
-            --text: #2c3e50;
-            --text-light: #7f8c8d;
-            --border: #ecf0f1;
-            --shadow: 0 2px 10px rgba(0,0,0,0.1);
-            --shadow-lg: 0 10px 30px rgba(0,0,0,0.15);
-            --radius: 12px;
-        }
-
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            color: var(--text);
-        }
-
-        .login-container {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            padding: 20px;
-        }
-
-        .login-box {
-            background: white;
-            border-radius: 20px;
-            box-shadow: var(--shadow-lg);
-            width: 100%;
-            max-width: 450px;
-            padding: 40px;
-        }
-
-        .login-logo {
-            text-align: center;
-            margin-bottom: 30px;
-        }
-
-        .login-logo .icon {
-            width: 80px;
-            height: 80px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border-radius: 20px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin: 0 auto 20px;
-            font-size: 40px;
-            color: white;
-        }
-
-        .login-logo h1 {
-            font-size: 24px;
-            margin-bottom: 5px;
-        }
-
-        .login-logo p {
-            color: var(--text-light);
-            font-size: 14px;
-        }
-
-        .login-tabs {
-            display: flex;
-            margin-bottom: 30px;
-            background: var(--background);
-            border-radius: 10px;
-            padding: 5px;
-        }
-
-        .login-tab {
-            flex: 1;
-            padding: 12px;
-            border: none;
-            background: transparent;
-            cursor: pointer;
-            font-weight: 600;
-            font-size: 14px;
-            border-radius: 8px;
-            transition: all 0.3s;
-            color: var(--text-light);
-        }
-
-        .login-tab.active {
-            background: white;
-            color: var(--primary);
-            box-shadow: var(--shadow);
-        }
-
-        .form-group {
-            margin-bottom: 20px;
-        }
-
-        .form-group label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: 600;
-            font-size: 14px;
-        }
-
-        .form-group input,
-        .form-group textarea {
-            width: 100%;
-            padding: 12px 15px;
-            border: 2px solid var(--border);
-            border-radius: 10px;
-            font-size: 14px;
-            transition: all 0.3s;
-        }
-
-        .form-group input:focus,
-        .form-group textarea:focus {
-            outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-        }
-
-        .btn {
-            display: inline-block;
-            padding: 12px 24px;
-            border: none;
-            border-radius: 10px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s;
-            width: 100%;
-            text-align: center;
-        }
-
-        .btn-primary {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-        }
-
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
-        }
-
-        .btn-setup {
-            background: #f39c12;
-            color: white;
-            margin-top: 10px;
-        }
-
-        .btn-setup:hover {
-            background: #e67e22;
-        }
-
-        .alert {
-            padding: 15px;
-            border-radius: 10px;
-            margin-bottom: 20px;
-            text-align: center;
-        }
-
-        .alert-success {
-            background: #d4edda;
-            color: #155724;
-            border: 1px solid #c3e6cb;
-        }
-
-        .alert-error {
-            background: #f8d7da;
-            color: #721c24;
-            border: 1px solid #f5c6cb;
-        }
-
-        .admin-layout {
-            display: flex;
-            min-height: 100vh;
-            background: var(--background);
-        }
-
-        .sidebar {
-            width: 250px;
-            background: var(--secondary);
-            color: white;
-            position: fixed;
-            height: 100vh;
-            overflow-y: auto;
-        }
-
-        .sidebar-header {
-            padding: 20px;
-            border-bottom: 1px solid rgba(255,255,255,0.1);
-            text-align: center;
-        }
-
-        .sidebar-header .icon {
-            font-size: 40px;
-        }
-
-        .sidebar-menu {
-            padding: 20px 0;
-        }
-
-        .sidebar-menu a {
-            display: flex;
-            align-items: center;
-            padding: 15px 20px;
-            color: white;
-            text-decoration: none;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-
-        .sidebar-menu a:hover,
-        .sidebar-menu a.active {
-            background: rgba(255,255,255,0.1);
-            border-left: 4px solid #667eea;
-        }
-
-        .main-content {
-            margin-left: 250px;
-            flex: 1;
-            padding: 20px;
-        }
-
-        .topbar {
-            background: white;
-            padding: 15px 20px;
-            margin: -20px -20px 20px;
-            box-shadow: var(--shadow);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .dashboard-cards {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
-        }
-
-        .dashboard-card {
-            background: white;
-            padding: 25px;
-            border-radius: var(--radius);
-            box-shadow: var(--shadow);
-        }
-
-        .dashboard-card h3 {
-            color: var(--text-light);
-            font-size: 14px;
-            margin-bottom: 10px;
-        }
-
-        .dashboard-card .value {
-            font-size: 32px;
-            font-weight: bold;
-        }
-
-        .table-container {
-            background: white;
-            border-radius: var(--radius);
-            padding: 20px;
-            box-shadow: var(--shadow);
-            overflow-x: auto;
-        }
-
-        table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-
-        th {
-            text-align: left;
-            padding: 15px;
-            background: var(--background);
-            font-weight: 600;
-            font-size: 14px;
-        }
-
-        td {
-            padding: 15px;
-            border-bottom: 1px solid var(--border);
-        }
-
-        .badge {
-            padding: 5px 10px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 600;
-        }
-
-        .badge-success {
-            background: #d4edda;
-            color: #155724;
-        }
-
-        .badge-warning {
-            background: #fff3cd;
-            color: #856404;
-        }
-
-        .toast {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            background: var(--success);
-            color: white;
-            padding: 15px 20px;
-            border-radius: 10px;
-            z-index: 3000;
-            animation: slideIn 0.3s ease;
-        }
-
-        @keyframes slideIn {
-            from {
-                transform: translateX(100%);
-                opacity: 0;
-            }
-            to {
-                transform: translateX(0);
-                opacity: 1;
-            }
-        }
+        body { font-family: 'Inter', sans-serif; -webkit-font-smoothing: antialiased; background-color: #f9fafb; }
+        .fade-in { animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+        .hide-scroll::-webkit-scrollbar { display: none; }
+        .hide-scroll { -ms-overflow-style: none; scrollbar-width: none; }
+        .glass-panel { background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(10px); }
+        .loader { border-radius: 50%; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .overlay { background-color: rgba(0, 0, 0, 0.5); backdrop-filter: blur(4px); }
     </style>
 </head>
-<body>
-    <div id="app"></div>
+<body class="text-gray-800 antialiased overflow-x-hidden">
 
-    <script>
-        // Configuração do Firebase
+    <div id="app" class="min-h-screen w-full flex flex-col">
+        <div class="flex-grow flex items-center justify-center">
+            <div class="loader w-12 h-12 border-4 border-gray-200 border-t-brand-500"></div>
+        </div>
+    </div>
+    
+    <div id="modal-container"></div>
+    <div id="toast-container" class="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc, collection, getDocs, updateDoc, deleteDoc, onSnapshot, query, where, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
         const firebaseConfig = {
             apiKey: "AIzaSyCZyMVAn_F3me72l8N1PqKTfgnb0cQpUKA",
             authDomain: "sistema-restaurantes-6baf8.firebaseapp.com",
@@ -361,635 +66,937 @@
             measurementId: "G-0B4Q7M2V5K"
         };
 
-        firebase.initializeApp(firebaseConfig);
-        const auth = firebase.auth();
-        const db = firebase.firestore();
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
 
-        class WASistema {
-            constructor() {
-                this.currentUser = null;
-                this.userRole = null;
-                this.tenantId = null;
-                this.activeTab = 'admin';
-                this.init();
-            }
+        // App Secundário: Permite ao Super Admin criar contas de restaurantes sem deslogar
+        const secondaryApp = initializeApp(firebaseConfig, "SecondaryApp");
+        const secondaryAuth = getAuth(secondaryApp);
 
-            async init() {
-                auth.onAuthStateChanged(async (user) => {
-                    if (user) {
-                        this.currentUser = user;
-                        await this.loadUserData();
-                        this.renderApp();
-                    } else {
-                        this.renderLogin();
-                    }
-                });
-            }
+        const collections = {
+            tenants: "saas_tenants",
+            products: "saas_products",
+            orders: "saas_orders"
+        };
 
-            async loadUserData() {
-                try {
-                    const userDoc = await db.collection('users').doc(this.currentUser.uid).get();
-                    if (userDoc.exists) {
-                        const userData = userDoc.data();
-                        this.userRole = userData.role;
-                        this.tenantId = userData.tenantId;
-                    }
-                } catch (error) {
-                    console.error('Erro:', error);
-                }
-            }
+        const state = {
+            currentUser: null,
+            isSuperAdmin: false,
+            currentTenant: null,
+            
+            viewingSlug: null,
+            publicTenant: null,
+            publicProducts: [],
+            cart: [],
+            
+            adminProducts: [],
+            adminOrders: [],
 
-            renderApp() {
-                if (this.userRole === 'superadmin') {
-                    this.renderSuperAdmin();
-                } else if (this.userRole === 'cliente') {
-                    this.renderClienteDashboard();
+            superAdminTenants: [],
+            superAdminOrders: [],
+            
+            isAppLoaded: false
+        };
+
+        function generateId() {
+            return Math.random().toString(36).substring(2, 15);
+        }
+
+        window.showToast = function(message, type = 'success') {
+            const toast = document.createElement('div');
+            const bgColor = type === 'success' ? 'bg-gray-900' : 'bg-red-500';
+            const icon = type === 'success' ? 'fa-check-circle text-green-400' : 'fa-exclamation-circle text-white';
+            
+            toast.className = `${bgColor} text-white px-6 py-3 rounded-xl shadow-2xl flex items-center gap-3 fade-in transform transition-all duration-300`;
+            toast.innerHTML = `<i class="fas ${icon} text-xl"></i><span class="font-medium">${message}</span>`;
+            
+            document.getElementById('toast-container').appendChild(toast);
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        window.openModal = function(htmlContent) {
+            document.getElementById('modal-container').innerHTML = htmlContent;
+        }
+
+        window.closeModal = function() {
+            document.getElementById('modal-container').innerHTML = '';
+        }
+
+        function setupRouter() {
+            window.addEventListener('hashchange', handleRoute);
+            handleRoute();
+        }
+
+        async function handleRoute() {
+            const hash = window.location.hash;
+            const appDiv = document.getElementById('app');
+
+            if (!state.isAppLoaded) return;
+
+            if (hash === '' || hash === '#/') {
+                renderLanding(appDiv);
+            } 
+            else if (hash.startsWith('#/login')) {
+                if (state.currentUser) {
+                    window.location.hash = state.isSuperAdmin ? '#/superadmin' : '#/admin';
                 } else {
-                    // Se não tem papel definido, mostrar mensagem
-                    this.renderLoginWithError('Usuário sem papel definido. Execute a configuração inicial.');
+                    renderAuth(appDiv);
                 }
-            }
-
-            renderLogin(errorMessage = '') {
-                const app = document.getElementById('app');
-                app.innerHTML = `
-                    <div class="login-container">
-                        <div class="login-box">
-                            <div class="login-logo">
-                                <div class="icon">🍽️</div>
-                                <h1>WA Sistema de Vendas</h1>
-                                <p>O sistema de vendas do seu restaurante</p>
-                            </div>
-                            
-                            ${errorMessage ? `<div class="alert alert-error">${errorMessage}</div>` : ''}
-                            
-                            <div class="login-tabs">
-                                <button class="login-tab ${this.activeTab === 'admin' ? 'active' : ''}" 
-                                        onclick="sistema.switchTab('admin')">
-                                    👑 ADMIN
-                                </button>
-                                <button class="login-tab ${this.activeTab === 'cliente' ? 'active' : ''}" 
-                                        onclick="sistema.switchTab('cliente')">
-                                    🏪 CLIENTE
-                                </button>
-                            </div>
-                            
-                            <div id="authForms">
-                                ${this.getLoginForm()}
-                            </div>
-                            
-                            <button class="btn btn-setup" onclick="sistema.setupSuperAdmin()">
-                                ⚙️ CONFIGURAR SUPER ADMIN (Primeira vez)
-                            </button>
-                            
-                            <div style="margin-top: 15px; text-align: center; font-size: 12px; color: #7f8c8d;">
-                                <p>Admin padrão: willdalves1@gmail.com</p>
-                                <p>Senha padrão: Will@123456</p>
-                            </div>
-                        </div>
-                    </div>
-                `;
-            }
-
-            renderLoginWithError(error) {
-                this.renderLogin(error);
-            }
-
-            switchTab(tab) {
-                this.activeTab = tab;
-                this.renderLogin();
-            }
-
-            getLoginForm() {
-                if (this.activeTab === 'admin') {
-                    return `
-                        <form onsubmit="sistema.handleLogin(event, 'admin')">
-                            <div class="form-group">
-                                <label>Email do Administrador</label>
-                                <input type="email" id="loginEmail" value="willdalves1@gmail.com" required>
-                            </div>
-                            <div class="form-group">
-                                <label>Senha</label>
-                                <input type="password" id="loginPassword" value="Will@123456" required>
-                            </div>
-                            <button type="submit" class="btn btn-primary">ENTRAR COMO ADMIN</button>
-                        </form>
-                    `;
+            } 
+            else if (hash.startsWith('#/superadmin')) {
+                if (!state.currentUser || !state.isSuperAdmin) {
+                    window.location.hash = '#/login';
                 } else {
-                    return `
-                        <form onsubmit="sistema.handleLogin(event, 'cliente')">
-                            <div class="form-group">
-                                <label>Email do Restaurante</label>
-                                <input type="email" id="loginEmail" required placeholder="restaurante@email.com">
-                            </div>
-                            <div class="form-group">
-                                <label>Senha</label>
-                                <input type="password" id="loginPassword" required placeholder="Sua senha">
-                            </div>
-                            <button type="submit" class="btn btn-primary">ENTRAR COMO CLIENTE</button>
-                            <p style="text-align: center; margin-top: 15px;">
-                                <a href="#" onclick="sistema.showRegister()" style="color: #667eea;">
-                                    Criar conta de restaurante
-                                </a>
-                            </p>
-                        </form>
-                    `;
+                    renderSuperAdmin(appDiv, hash);
                 }
             }
-
-            async setupSuperAdmin() {
-                const email = "willdalves1@gmail.com";
-                const password = "Will@123456";
-                
-                try {
-                    // Verificar se já existe
-                    try {
-                        const userCredential = await auth.signInWithEmailAndPassword(email, password);
-                        console.log('Usuário já existe, atualizando...');
-                        
-                        // Atualizar para superadmin
-                        await db.collection('users').doc(userCredential.user.uid).set({
-                            email: email,
-                            role: 'superadmin',
-                            tenantId: null,
-                            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-                        }, { merge: true });
-                        
-                        this.showToast('✅ Super Admin configurado!');
-                        this.renderLogin('✅ Super Admin configurado com sucesso! Faça login.');
-                    } catch (loginError) {
-                        // Criar novo usuário
-                        const userCredential = await auth.createUserWithEmailAndPassword(email, password);
-                        
-                        // Salvar como superadmin
-                        await db.collection('users').doc(userCredential.user.uid).set({
-                            email: email,
-                            role: 'superadmin',
-                            tenantId: null,
-                            createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                        });
-                        
-                        this.showToast('✅ Super Admin criado!');
-                        this.renderLogin('✅ Super Admin criado com sucesso! Faça login.');
-                    }
-                } catch (error) {
-                    console.error('Erro detalhado:', error);
-                    this.showToast('❌ Erro: ' + error.message);
+            else if (hash.startsWith('#/admin')) {
+                if (!state.currentUser) {
+                    window.location.hash = '#/login';
+                } else if (state.isSuperAdmin) {
+                    window.location.hash = '#/superadmin';
+                } else {
+                    renderAdmin(appDiv, hash);
+                }
+            } 
+            else if (hash.startsWith('#/cardapio/')) {
+                const slug = hash.split('/')[2];
+                if (slug) {
+                    state.viewingSlug = slug;
+                    await loadPublicMenuData(slug);
+                    renderPublicMenu(appDiv);
+                } else {
+                    window.location.hash = '#/';
                 }
             }
-
-            async handleLogin(event, type) {
-                event.preventDefault();
-                const email = document.getElementById('loginEmail').value;
-                const password = document.getElementById('loginPassword').value;
-
-                try {
-                    const userCredential = await auth.signInWithEmailAndPassword(email, password);
-                    await this.loadUserData();
-                    
-                    if (type === 'admin' && this.userRole !== 'superadmin') {
-                        await auth.signOut();
-                        this.renderLogin('❌ Este email não é de administrador!');
-                        return;
-                    }
-                    
-                    this.showToast('✅ Login realizado!');
-                    this.renderApp();
-                } catch (error) {
-                    console.error('Erro no login:', error);
-                    let errorMsg = 'Erro ao fazer login';
-                    
-                    if (error.code === 'auth/user-not-found') {
-                        errorMsg = '❌ Usuário não encontrado. Clique em "CONFIGURAR SUPER ADMIN" abaixo.';
-                    } else if (error.code === 'auth/wrong-password') {
-                        errorMsg = '❌ Senha incorreta. A senha padrão é: Will@123456';
-                    } else if (error.code === 'auth/invalid-email') {
-                        errorMsg = '❌ Email inválido';
-                    }
-                    
-                    this.renderLogin(errorMsg);
-                }
-            }
-
-            showRegister() {
-                const app = document.getElementById('app');
-                app.innerHTML = `
-                    <div class="login-container">
-                        <div class="login-box">
-                            <div class="login-logo">
-                                <div class="icon">🏪</div>
-                                <h1>Criar Conta</h1>
-                                <p>Comece a vender online hoje</p>
-                            </div>
-                            <form onsubmit="sistema.handleRegister(event)">
-                                <div class="form-group">
-                                    <label>Nome do Restaurante</label>
-                                    <input type="text" id="regName" required>
-                                </div>
-                                <div class="form-group">
-                                    <label>Email</label>
-                                    <input type="email" id="regEmail" required>
-                                </div>
-                                <div class="form-group">
-                                    <label>Senha</label>
-                                    <input type="password" id="regPassword" required minlength="6">
-                                </div>
-                                <div class="form-group">
-                                    <label>WhatsApp</label>
-                                    <input type="tel" id="regPhone" required>
-                                </div>
-                                <button type="submit" class="btn btn-primary">CRIAR CONTA</button>
-                                <p style="text-align: center; margin-top: 15px;">
-                                    <a href="#" onclick="sistema.renderLogin()" style="color: #667eea;">
-                                        Voltar para login
-                                    </a>
-                                </p>
-                            </form>
-                        </div>
-                    </div>
-                `;
-            }
-
-            async handleRegister(event) {
-                event.preventDefault();
-                const name = document.getElementById('regName').value;
-                const email = document.getElementById('regEmail').value;
-                const password = document.getElementById('regPassword').value;
-                const phone = document.getElementById('regPhone').value;
-
-                try {
-                    const userCredential = await auth.createUserWithEmailAndPassword(email, password);
-                    
-                    const tenantRef = await db.collection('tenants').add({
-                        name: name,
-                        slug: name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-                        description: '',
-                        logo: '',
-                        phone: phone,
-                        whatsapp: phone,
-                        address: '',
-                        status: 'active',
-                        plan: 'trial',
-                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-
-                    await db.collection('users').doc(userCredential.user.uid).set({
-                        email: email,
-                        role: 'cliente',
-                        tenantId: tenantRef.id,
-                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-
-                    this.tenantId = tenantRef.id;
-                    this.userRole = 'cliente';
-                    this.showToast('✅ Conta criada!');
-                    this.renderClienteDashboard();
-                } catch (error) {
-                    this.showToast('❌ Erro: ' + error.message);
-                }
-            }
-
-            async renderSuperAdmin() {
-                const app = document.getElementById('app');
-                const tenants = await this.getAllTenants();
-                
-                app.innerHTML = `
-                    <div class="admin-layout">
-                        <div class="sidebar">
-                            <div class="sidebar-header">
-                                <div class="icon">👑</div>
-                                <h3>Super Admin</h3>
-                            </div>
-                            <nav class="sidebar-menu">
-                                <a href="#" class="active" onclick="sistema.showDashboard()">📊 Dashboard</a>
-                                <a href="#" onclick="sistema.showTenants()">🏪 Restaurantes</a>
-                                <a href="#" onclick="sistema.showUsers()">👥 Usuários</a>
-                            </nav>
-                        </div>
-                        <div class="main-content">
-                            <div class="topbar">
-                                <h2>Dashboard Super Admin</h2>
-                                <div class="user-menu">
-                                    <span>${this.currentUser.email}</span>
-                                    <button onclick="sistema.logout()">SAIR</button>
-                                </div>
-                            </div>
-                            <div id="content">
-                                <div class="dashboard-cards">
-                                    <div class="dashboard-card">
-                                        <h3>Total Restaurantes</h3>
-                                        <div class="value">${tenants.length}</div>
-                                    </div>
-                                    <div class="dashboard-card">
-                                        <h3>Restaurantes Ativos</h3>
-                                        <div class="value">${tenants.filter(t => t.status === 'active').length}</div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                `;
-            }
-
-            async renderClienteDashboard() {
-                const app = document.getElementById('app');
-                const tenantData = await this.getTenantData();
-                const products = await this.getMyProducts();
-                
-                app.innerHTML = `
-                    <div class="admin-layout">
-                        <div class="sidebar">
-                            <div class="sidebar-header">
-                                <div class="icon">🏪</div>
-                                <h3>${tenantData.name || 'Meu Restaurante'}</h3>
-                            </div>
-                            <nav class="sidebar-menu">
-                                <a href="#" class="active" onclick="sistema.showClienteDashboard()">📊 Dashboard</a>
-                                <a href="#" onclick="sistema.showNovoProduto()">➕ Novo Produto</a>
-                                <a href="#" onclick="sistema.showMeuCardapio()">📋 Meu Cardápio</a>
-                                <a href="#" onclick="sistema.showConfig()">⚙️ Configurações</a>
-                            </nav>
-                        </div>
-                        <div class="main-content">
-                            <div class="topbar">
-                                <h2>${tenantData.name || 'Dashboard'}</h2>
-                                <div class="user-menu">
-                                    <button onclick="sistema.logout()">SAIR</button>
-                                </div>
-                            </div>
-                            <div id="content">
-                                <div class="dashboard-cards">
-                                    <div class="dashboard-card">
-                                        <h3>Total Produtos</h3>
-                                        <div class="value">${products.length}</div>
-                                    </div>
-                                </div>
-                                <div class="table-container">
-                                    <table>
-                                        <thead>
-                                            <tr>
-                                                <th>Produto</th>
-                                                <th>Preço</th>
-                                                <th>Status</th>
-                                                <th>Ações</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            ${products.map(p => `
-                                                <tr>
-                                                    <td>${p.name}</td>
-                                                    <td>R$ ${(p.price || 0).toFixed(2)}</td>
-                                                    <td><span class="badge badge-success">Ativo</span></td>
-                                                    <td>
-                                                        <button onclick="sistema.deleteProduct('${p.id}')">🗑️</button>
-                                                    </td>
-                                                </tr>
-                                            `).join('')}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                `;
-            }
-
-            showNovoProduto() {
-                const content = document.getElementById('content');
-                content.innerHTML = `
-                    <h2>Novo Produto</h2>
-                    <form onsubmit="sistema.salvarProduto(event)" style="max-width: 500px; margin-top: 20px;">
-                        <div class="form-group">
-                            <label>Nome do Produto</label>
-                            <input type="text" id="prodName" required>
-                        </div>
-                        <div class="form-group">
-                            <label>Descrição</label>
-                            <textarea id="prodDesc" rows="3"></textarea>
-                        </div>
-                        <div class="form-group">
-                            <label>Preço</label>
-                            <input type="number" id="prodPrice" step="0.01" required>
-                        </div>
-                        <div class="form-group">
-                            <label>URL da Foto</label>
-                            <input type="url" id="prodImage" placeholder="https://...">
-                        </div>
-                        <button type="submit" class="btn btn-primary">SALVAR</button>
-                    </form>
-                `;
-            }
-
-            async salvarProduto(event) {
-                event.preventDefault();
-                const productData = {
-                    name: document.getElementById('prodName').value,
-                    description: document.getElementById('prodDesc').value,
-                    price: parseFloat(document.getElementById('prodPrice').value),
-                    image: document.getElementById('prodImage').value,
-                    status: 'active',
-                    createdAt: firebase.firestore.FieldValue.serverTimestamp()
-                };
-
-                try {
-                    await db.collection('tenants')
-                        .doc(this.tenantId)
-                        .collection('products')
-                        .add(productData);
-                    
-                    this.showToast('✅ Produto criado!');
-                    this.renderClienteDashboard();
-                } catch (error) {
-                    this.showToast('❌ Erro: ' + error.message);
-                }
-            }
-
-            async deleteProduct(productId) {
-                if (confirm('Excluir este produto?')) {
-                    try {
-                        await db.collection('tenants')
-                            .doc(this.tenantId)
-                            .collection('products')
-                            .doc(productId)
-                            .delete();
-                        
-                        this.showToast('✅ Produto excluído!');
-                        this.renderClienteDashboard();
-                    } catch (error) {
-                        this.showToast('❌ Erro: ' + error.message);
-                    }
-                }
-            }
-
-            async showMeuCardapio() {
-                const products = await this.getMyProducts();
-                const content = document.getElementById('content');
-                
-                content.innerHTML = `
-                    <h2>Meu Cardápio</h2>
-                    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 20px; margin-top: 20px;">
-                        ${products.map(p => `
-                            <div style="background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
-                                <img src="${p.image || 'https://via.placeholder.com/300x200'}" 
-                                     style="width: 100%; height: 200px; object-fit: cover;">
-                                <div style="padding: 20px;">
-                                    <h3>${p.name}</h3>
-                                    <p>${p.description || ''}</p>
-                                    <p style="font-size: 24px; font-weight: bold; color: #e74c3c;">R$ ${(p.price || 0).toFixed(2)}</p>
-                                </div>
-                            </div>
-                        `).join('')}
-                    </div>
-                `;
-            }
-
-            async showConfig() {
-                const tenantData = await this.getTenantData();
-                const content = document.getElementById('content');
-                
-                content.innerHTML = `
-                    <h2>Configurações</h2>
-                    <form onsubmit="sistema.salvarConfig(event)" style="max-width: 500px; margin-top: 20px;">
-                        <div class="form-group">
-                            <label>Nome do Restaurante</label>
-                            <input type="text" id="configName" value="${tenantData.name || ''}" required>
-                        </div>
-                        <div class="form-group">
-                            <label>Descrição</label>
-                            <textarea id="configDesc" rows="3">${tenantData.description || ''}</textarea>
-                        </div>
-                        <div class="form-group">
-                            <label>WhatsApp</label>
-                            <input type="tel" id="configPhone" value="${tenantData.phone || ''}">
-                        </div>
-                        <div class="form-group">
-                            <label>Endereço</label>
-                            <input type="text" id="configAddress" value="${tenantData.address || ''}">
-                        </div>
-                        <div class="form-group">
-                            <label>Logo (URL)</label>
-                            <input type="url" id="configLogo" value="${tenantData.logo || ''}">
-                        </div>
-                        <button type="submit" class="btn btn-primary">SALVAR</button>
-                    </form>
-                `;
-            }
-
-            async salvarConfig(event) {
-                event.preventDefault();
-                const updates = {
-                    name: document.getElementById('configName').value,
-                    description: document.getElementById('configDesc').value,
-                    phone: document.getElementById('configPhone').value,
-                    address: document.getElementById('configAddress').value,
-                    logo: document.getElementById('configLogo').value
-                };
-
-                try {
-                    await db.collection('tenants').doc(this.tenantId).update(updates);
-                    this.showToast('✅ Configurações salvas!');
-                    this.renderClienteDashboard();
-                } catch (error) {
-                    this.showToast('❌ Erro: ' + error.message);
-                }
-            }
-
-            async getAllTenants() {
-                const snapshot = await db.collection('tenants').get();
-                return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            }
-
-            async getAllUsers() {
-                const snapshot = await db.collection('users').get();
-                return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            }
-
-            async getTenantData() {
-                const doc = await db.collection('tenants').doc(this.tenantId).get();
-                return doc.exists ? doc.data() : {};
-            }
-
-            async getMyProducts() {
-                const snapshot = await db.collection('tenants')
-                    .doc(this.tenantId)
-                    .collection('products')
-                    .orderBy('createdAt', 'desc')
-                    .get();
-                return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            }
-
-            async showTenants() {
-                const tenants = await this.getAllTenants();
-                const content = document.getElementById('content');
-                content.innerHTML = `
-                    <h2>Restaurantes</h2>
-                    <div class="table-container">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Nome</th>
-                                    <th>Status</th>
-                                    <th>Plano</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${tenants.map(t => `
-                                    <tr>
-                                        <td>${t.name}</td>
-                                        <td><span class="badge badge-success">${t.status}</span></td>
-                                        <td>${t.plan || 'trial'}</td>
-                                    </tr>
-                                `).join('')}
-                            </tbody>
-                        </table>
-                    </div>
-                `;
-            }
-
-            async showUsers() {
-                const users = await this.getAllUsers();
-                const content = document.getElementById('content');
-                content.innerHTML = `
-                    <h2>Usuários</h2>
-                    <div class="table-container">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Email</th>
-                                    <th>Papel</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${users.map(u => `
-                                    <tr>
-                                        <td>${u.email}</td>
-                                        <td><span class="badge badge-warning">${u.role}</span></td>
-                                    </tr>
-                                `).join('')}
-                            </tbody>
-                        </table>
-                    </div>
-                `;
-            }
-
-            async logout() {
-                await auth.signOut();
-                this.currentUser = null;
-                this.userRole = null;
-                this.tenantId = null;
-                this.renderLogin();
-            }
-
-            showToast(message) {
-                const toast = document.createElement('div');
-                toast.className = 'toast';
-                toast.textContent = message;
-                document.body.appendChild(toast);
-                setTimeout(() => toast.remove(), 3000);
+            else {
+                window.location.hash = '#/';
             }
         }
 
-        const sistema = new WASistema();
+        async function initializeAppAuth() {
+            onAuthStateChanged(auth, async (user) => {
+                state.currentUser = user;
+                if (user) {
+                    state.isSuperAdmin = (user.email === 'willdalves1@gmail.com');
+
+                    if (!state.isSuperAdmin) {
+                        try {
+                            const docRef = doc(db, collections.tenants, user.uid);
+                            const docSnap = await getDoc(docRef);
+                            if (docSnap.exists()) {
+                                state.currentTenant = { id: docSnap.id, ...docSnap.data() };
+                            } else {
+                                state.currentTenant = null;
+                            }
+                        } catch (e) {
+                            console.error("Erro ao carregar perfil da loja:", e);
+                        }
+                    }
+                } else {
+                    state.currentTenant = null;
+                    state.isSuperAdmin = false;
+                }
+                
+                if (!state.isAppLoaded) {
+                    state.isAppLoaded = true;
+                    handleRoute();
+                } else {
+                    handleRoute();
+                }
+            });
+        }
+
+        window.renderLanding = function(container) {
+            container.innerHTML = `
+                <div class="min-h-screen flex flex-col bg-white fade-in">
+                    <header class="flex justify-between items-center p-6 lg:px-12 border-b border-gray-100 bg-white sticky top-0 z-50">
+                        <div class="font-black text-2xl tracking-tighter flex items-center gap-2">
+                            <div class="w-8 h-8 bg-brand-500 rounded-lg flex items-center justify-center text-white text-sm shadow-md shadow-brand-500/30">
+                                <i class="fas fa-bolt"></i>
+                            </div>
+                            <span><span class="text-brand-500">WA</span> Vendas</span>
+                        </div>
+                        <nav>
+                            <button onclick="window.location.hash='#/login'" class="font-semibold text-gray-600 hover:text-brand-500 mr-6 transition">Entrar</button>
+                            <button onclick="window.location.hash='#/login?type=cliente&register=true'" class="bg-brand-dark text-white px-5 py-2.5 rounded-xl font-bold hover:bg-gray-800 transition shadow-lg">Começar Grátis</button>
+                        </nav>
+                    </header>
+
+                    <main class="flex-grow flex flex-col items-center justify-center text-center px-4 py-20 bg-gradient-to-b from-gray-50 to-white">
+                        <div class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-brand-50 text-brand-600 font-bold text-sm mb-8 border border-brand-100">
+                            <span class="relative flex h-2.5 w-2.5">
+                              <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-brand-400 opacity-75"></span>
+                              <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-brand-500"></span>
+                            </span>
+                            Plataforma SaaS Completa
+                        </div>
+                        <h1 class="text-5xl md:text-7xl font-black text-gray-900 tracking-tight mb-6 max-w-4xl leading-tight">
+                            O sistema de vendas do seu <span class="text-transparent bg-clip-text bg-gradient-to-r from-brand-500 to-orange-500">Restaurante</span>
+                        </h1>
+                        <p class="text-xl text-gray-500 mb-10 max-w-2xl font-medium">Cardápio digital, gestão de pedidos e recebimentos via PIX e Cartão. Tudo em uma única plataforma profissional.</p>
+                        
+                        <div class="flex flex-col sm:flex-row gap-4">
+                            <button onclick="window.location.hash='#/login?type=cliente&register=true'" class="bg-brand-500 text-white px-8 py-4 rounded-xl font-bold text-lg hover:bg-brand-600 transition shadow-xl shadow-brand-500/30 flex items-center justify-center gap-2">
+                                Criar minha Loja Agora <i class="fas fa-arrow-right"></i>
+                            </button>
+                            <button onclick="window.location.hash='#/cardapio/demo'" class="bg-white border-2 border-gray-200 text-gray-700 px-8 py-4 rounded-xl font-bold text-lg hover:border-gray-300 hover:bg-gray-50 transition flex items-center justify-center gap-2">
+                                <i class="fas fa-mobile-alt text-brand-500"></i> Ver Cardápio Demo
+                            </button>
+                        </div>
+
+                        <div class="mt-20 w-full max-w-5xl">
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-8 text-left">
+                                <div class="bg-white p-8 rounded-2xl shadow-sm border border-gray-100">
+                                    <div class="w-12 h-12 bg-red-50 text-brand-500 rounded-xl flex items-center justify-center text-xl mb-6"><i class="fas fa-hamburger"></i></div>
+                                    <h3 class="text-xl font-bold mb-3">Cardápio Digital Lindo</h3>
+                                    <p class="text-gray-500 text-sm leading-relaxed">Mostre seus produtos com fotos incríveis, variações e adicionais. Seus clientes vão comprar com os olhos.</p>
+                                </div>
+                                <div class="bg-white p-8 rounded-2xl shadow-sm border border-gray-100">
+                                    <div class="w-12 h-12 bg-green-50 text-green-500 rounded-xl flex items-center justify-center text-xl mb-6"><i class="fas fa-motorcycle"></i></div>
+                                    <h3 class="text-xl font-bold mb-3">Gestão de Pedidos</h3>
+                                    <p class="text-gray-500 text-sm leading-relaxed">Receba os pedidos direto no painel com alertas sonoros. Acompanhe do preparo até a entrega.</p>
+                                </div>
+                                <div class="bg-white p-8 rounded-2xl shadow-sm border border-gray-100">
+                                    <div class="w-12 h-12 bg-blue-50 text-blue-500 rounded-xl flex items-center justify-center text-xl mb-6"><i class="fas fa-qrcode"></i></div>
+                                    <h3 class="text-xl font-bold mb-3">Pagamento Facilitado</h3>
+                                    <p class="text-gray-500 text-sm leading-relaxed">Integração nativa para pagamentos. Dinheiro direto na sua conta sem taxas abusivas de aplicativos de terceiros.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </main>
+                </div>
+            `;
+        }
+
+        window.renderAuth = function(container) {
+            const urlParams = new URLSearchParams(window.location.hash.split('?')[1]);
+            const isRegister = urlParams.get('register') === 'true';
+            window.authTab = urlParams.get('type') === 'admin' ? 'admin' : 'cliente'; 
+            renderAuthUI(container, isRegister);
+        }
+
+        window.renderAuthUI = function(container, isRegister) {
+            const isAdmin = window.authTab === 'admin';
+
+            container.innerHTML = `
+                <div class="min-h-screen flex items-center justify-center bg-gray-50 p-4 fade-in">
+                    <div class="bg-white p-8 sm:p-12 rounded-3xl shadow-2xl w-full max-w-md border border-gray-100 relative overflow-hidden">
+                        <div class="absolute top-0 left-0 w-full h-2 bg-gradient-to-r ${isAdmin ? 'from-purple-600 to-blue-600' : 'from-brand-500 to-orange-500'}"></div>
+                        <div class="text-center mb-8">
+                            <div class="inline-flex items-center justify-center w-16 h-16 rounded-2xl ${isAdmin ? 'bg-purple-50 text-purple-600' : 'bg-red-50 text-brand-600'} mb-4 shadow-inner">
+                                <i class="fas ${isAdmin ? 'fa-shield-alt' : 'fa-store'} text-2xl"></i>
+                            </div>
+                            <h2 class="text-2xl font-bold text-gray-800">${isAdmin ? 'Acesso Administrativo' : (isRegister ? 'Crie seu Restaurante' : 'Painel do Restaurante')}</h2>
+                            <p class="text-gray-500 text-sm mt-1">${isAdmin ? 'Gestão da Plataforma WA Vendas.' : (isRegister ? 'Inicie seu teste gratuito e monte seu cardápio.' : 'Gerencie suas vendas e cardápio.')}</p>
+                        </div>
+
+                        <div class="flex p-1 bg-gray-100 rounded-xl mb-8">
+                            <button onclick="window.authTab='cliente'; renderAuthUI(document.getElementById('app'), false)" class="flex-1 py-2 text-sm font-bold rounded-lg transition ${!isAdmin ? 'bg-white shadow-sm text-brand-600' : 'text-gray-500 hover:text-gray-800'}">Sou Lojista</button>
+                            <button onclick="window.authTab='admin'; renderAuthUI(document.getElementById('app'), false)" class="flex-1 py-2 text-sm font-bold rounded-lg transition ${isAdmin ? 'bg-white shadow-sm text-purple-600' : 'text-gray-500 hover:text-gray-800'}">Administrador</button>
+                        </div>
+
+                        <form id="auth-form" class="space-y-4" onsubmit="handleAuthSubmit(event, ${isRegister && !isAdmin}, ${isAdmin})">
+                            ${(isRegister && !isAdmin) ? `
+                                <div>
+                                    <label class="block text-sm font-bold text-gray-700 mb-1">Nome do Estabelecimento</label>
+                                    <input type="text" id="restaurant-name" required class="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition bg-gray-50 focus:bg-white">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-bold text-gray-700 mb-1">Link do Cardápio</label>
+                                    <div class="flex shadow-sm rounded-xl overflow-hidden border border-gray-300 focus-within:ring-2 focus-within:ring-brand-500 transition">
+                                        <span class="inline-flex items-center px-3 bg-gray-100 text-gray-500 text-sm font-mono border-r border-gray-200">wa.com/</span>
+                                        <input type="text" id="restaurant-slug" placeholder="sua-loja" required class="flex-1 min-w-0 block w-full px-3 py-3 font-mono text-sm outline-none bg-gray-50 focus:bg-white" onkeyup="this.value = this.value.toLowerCase().replace(/[^a-z0-9-]/g, '')">
+                                    </div>
+                                </div>
+                            ` : ''}
+                            
+                            <div>
+                                <label class="block text-sm font-bold text-gray-700 mb-1">E-mail</label>
+                                <div class="relative">
+                                    <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-gray-400"><i class="fas fa-envelope"></i></div>
+                                    <input type="email" id="email" required placeholder="seu@email.com" class="w-full pl-11 pr-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-${isAdmin ? 'purple' : 'brand'}-500 outline-none transition bg-gray-50 focus:bg-white">
+                                </div>
+                            </div>
+                            
+                            <div>
+                                <label class="block text-sm font-bold text-gray-700 mb-1">Senha</label>
+                                <div class="relative">
+                                    <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-gray-400"><i class="fas fa-lock"></i></div>
+                                    <input type="password" id="password" required placeholder="••••••••" class="w-full pl-11 pr-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-${isAdmin ? 'purple' : 'brand'}-500 outline-none transition bg-gray-50 focus:bg-white">
+                                </div>
+                            </div>
+
+                            <button type="submit" id="auth-btn" class="w-full ${isAdmin ? 'bg-purple-600 hover:bg-purple-700 shadow-purple-500/30' : 'bg-brand-500 hover:bg-brand-600 shadow-brand-500/30'} text-white font-bold py-3.5 rounded-xl transition shadow-lg flex justify-center items-center mt-2">
+                                ${isAdmin ? 'Entrar no Painel WA' : (isRegister ? 'Criar Loja e Começar' : 'Acessar meu Restaurante')}
+                            </button>
+                        </form>
+
+                        ${!isAdmin ? `
+                        <div class="mt-6 text-center text-sm text-gray-600 font-medium">
+                            ${isRegister ? 
+                                `Já tem sua loja? <a href="javascript:void(0)" onclick="renderAuthUI(document.getElementById('app'), false)" class="text-brand-600 hover:underline">Fazer Login</a>` : 
+                                `Ainda não é parceiro? <a href="javascript:void(0)" onclick="renderAuthUI(document.getElementById('app'), true)" class="text-brand-600 hover:underline">Cadastre-se</a>`
+                            }
+                        </div>
+                        ` : `
+                        <div class="mt-6 text-center text-xs text-gray-400">
+                            Acesso restrito à equipe administrativa WA Vendas.
+                        </div>
+                        `}
+                    </div>
+                </div>
+            `;
+        }
+
+        window.handleAuthSubmit = async function(event, isRegister, isAdmin) {
+            event.preventDefault();
+            const btn = document.getElementById('auth-btn');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<div class="loader w-5 h-5 border-2 border-white border-t-transparent mx-auto"></div>';
+            btn.disabled = true;
+
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+
+            try {
+                if (isRegister && !isAdmin) {
+                    const name = document.getElementById('restaurant-name').value;
+                    const slug = document.getElementById('restaurant-slug').value;
+                    
+                    if(slug.length < 3) throw new Error("Link deve ter pelo menos 3 caracteres.");
+
+                    const userCreds = await createUserWithEmailAndPassword(auth, email, password);
+                    await updateProfile(userCreds.user, { displayName: name });
+                    
+                    await setDoc(doc(db, collections.tenants, userCreds.user.uid), {
+                        name: name,
+                        slug: slug,
+                        email: email,
+                        status: 'active',
+                        plan: 'trial',
+                        createdAt: serverTimestamp(),
+                        settings: {
+                            open: true,
+                            minOrder: 0,
+                            primaryColor: '#ef4444'
+                        }
+                    });
+                    showToast('Restaurante criado com sucesso! Bem-vindo(a).');
+                } else {
+                    await signInWithEmailAndPassword(auth, email, password);
+                    if (isAdmin && email !== 'willdalves1@gmail.com') {
+                        throw new Error("Acesso administrativo negado.");
+                    }
+                    showToast('Acesso liberado.');
+                }
+            } catch (error) {
+                console.error(error);
+                let msg = error.message;
+                if(error.code === 'auth/email-already-in-use') msg = "E-mail já cadastrado.";
+                if(error.code === 'auth/invalid-credential') msg = "E-mail ou senha incorretos.";
+                showToast(msg, 'error');
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+            }
+        }
+
+        window.doLogout = async function() {
+            await signOut(auth);
+            state.currentUser = null;
+            state.currentTenant = null;
+            state.isSuperAdmin = false;
+            window.location.hash = '#/';
+        }
+
+        async function loadSuperAdminData() {
+            if (!state.isSuperAdmin) return;
+            const tenantsSnap = await getDocs(collection(db, collections.tenants));
+            state.superAdminTenants = tenantsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+            
+            const contentDiv = document.getElementById('superadmin-content');
+            if (contentDiv) {
+                contentDiv.innerHTML = getSuperAdminContent(window.location.hash.split('/')[2] || 'dashboard');
+            }
+        }
+
+        window.renderSuperAdmin = function(container, hash) {
+            loadSuperAdminData();
+            const subRoute = hash.split('/')[2] || 'dashboard';
+
+            container.innerHTML = `
+                <div class="flex h-screen bg-gray-50 fade-in text-sm">
+                    <aside class="w-64 bg-[#0f172a] text-white flex flex-col border-r border-gray-800">
+                        <div class="p-6">
+                            <div class="font-black text-xl flex items-center gap-2 mb-1"><i class="fas fa-shield-alt text-purple-500"></i> WA Admin</div>
+                            <div class="text-xs text-gray-400 uppercase tracking-widest font-bold">Plataforma SaaS</div>
+                        </div>
+                        <nav class="flex-grow px-4 space-y-1 mt-4">
+                            <a href="#/superadmin/dashboard" class="flex items-center gap-3 px-4 py-3 rounded-xl transition ${subRoute === 'dashboard' ? 'bg-purple-600 text-white font-bold' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}">
+                                <i class="fas fa-chart-pie w-5"></i> Dashboard
+                            </a>
+                            <a href="#/superadmin/restaurantes" class="flex items-center gap-3 px-4 py-3 rounded-xl transition ${subRoute === 'restaurantes' ? 'bg-purple-600 text-white font-bold' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}">
+                                <i class="fas fa-store w-5"></i> Lojistas
+                            </a>
+                        </nav>
+                        <div class="p-4"><button onclick="doLogout()" class="w-full py-3 text-red-400 hover:bg-red-500/10 rounded-xl font-bold"><i class="fas fa-power-off"></i> Sair</button></div>
+                    </aside>
+                    <main class="flex-grow flex flex-col overflow-hidden">
+                        <header class="h-16 bg-white border-b px-8 flex items-center justify-between shrink-0 shadow-sm z-10">
+                            <h2 class="text-lg font-bold text-gray-800"><i class="fas ${subRoute === 'dashboard' ? 'fa-chart-pie' : 'fa-store'} text-purple-600 mr-2"></i> ${subRoute === 'dashboard' ? 'Visão Geral' : 'Gestão de Lojistas'}</h2>
+                            <div class="bg-purple-50 text-purple-700 px-3 py-1 rounded-full font-bold text-xs border border-purple-100 flex items-center gap-2">
+                                <span class="relative flex h-2 w-2"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-75"></span><span class="relative inline-flex rounded-full h-2 w-2 bg-purple-600"></span></span>
+                                Sistema Online
+                            </div>
+                        </header>
+                        <div class="flex-grow p-8 overflow-y-auto" id="superadmin-content">
+                            <div class="flex justify-center h-full items-center"><div class="loader w-8 h-8 border-4 border-gray-200 border-t-purple-600"></div></div>
+                        </div>
+                    </main>
+                </div>
+            `;
+        }
+
+        function getSuperAdminContent(route) {
+            if (route === 'restaurantes') return renderSuperAdminRestaurants();
+            
+            const totalRestaurantes = state.superAdminTenants.length;
+            const mrr = totalRestaurantes * 99.90;
+
+            return `
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                    <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm relative overflow-hidden group">
+                        <div class="absolute top-4 right-4 text-purple-100 group-hover:text-purple-200 transition text-5xl"><i class="fas fa-store"></i></div>
+                        <p class="text-gray-500 font-bold mb-1 uppercase text-xs tracking-wider">Restaurantes Cadastrados</p>
+                        <h3 class="text-3xl font-black text-gray-800">${totalRestaurantes}</h3>
+                    </div>
+                    <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm relative overflow-hidden group">
+                        <div class="absolute top-4 right-4 text-green-100 group-hover:text-green-200 transition text-5xl"><i class="fas fa-dollar-sign"></i></div>
+                        <p class="text-gray-500 font-bold mb-1 uppercase text-xs tracking-wider">MRR Potencial</p>
+                        <h3 class="text-3xl font-black text-green-600">${mrr.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</h3>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderSuperAdminRestaurants() {
+            return `
+                <div class="flex justify-between items-center mb-6">
+                    <h3 class="font-bold text-gray-800 text-lg">Lista de Lojistas</h3>
+                    <button onclick="openCreateTenantModal()" class="bg-purple-600 text-white px-5 py-2 rounded-xl font-bold hover:bg-purple-700 shadow-lg shadow-purple-500/30 transition flex items-center gap-2">
+                        <i class="fas fa-plus"></i> Novo Lojista
+                    </button>
+                </div>
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                    <table class="w-full text-left">
+                        <thead class="bg-gray-50 text-xs uppercase text-gray-500 font-bold border-b border-gray-100">
+                            <tr>
+                                <th class="p-4">Restaurante</th>
+                                <th class="p-4">Slug</th>
+                                <th class="p-4">Status</th>
+                                <th class="p-4">Data</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100 text-sm font-medium text-gray-700">
+                            ${state.superAdminTenants.map(t => `
+                                <tr class="hover:bg-gray-50">
+                                    <td class="p-4 font-bold text-gray-900">${t.name}</td>
+                                    <td class="p-4 text-purple-600 font-mono text-xs"><a href="#/cardapio/${t.slug}" target="_blank">/${t.slug} <i class="fas fa-external-link-alt ml-1"></i></a></td>
+                                    <td class="p-4"><span class="px-2 py-1 bg-green-100 text-green-700 rounded text-xs border border-green-200">Ativo</span></td>
+                                    <td class="p-4 text-gray-500">${t.createdAt ? new Date(t.createdAt.toDate()).toLocaleDateString() : 'N/A'}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        window.openCreateTenantModal = function() {
+            const html = `
+                <div class="fixed inset-0 z-50 flex items-center justify-center p-4 overlay fade-in">
+                    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
+                        <div class="p-6 border-b bg-purple-50 flex justify-between items-center">
+                            <h3 class="font-bold text-purple-900 flex items-center gap-2"><i class="fas fa-user-plus"></i> Criar Conta de Lojista</h3>
+                            <button onclick="closeModal()" class="text-purple-400 hover:text-purple-800 text-xl leading-none">&times;</button>
+                        </div>
+                        <div class="p-6">
+                            <form id="admin-create-tenant-form" class="space-y-4" onsubmit="submitAdminCreateTenant(event)">
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-700 mb-1">Nome</label>
+                                    <input type="text" id="new-t-name" required class="w-full px-4 py-2.5 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:border-purple-500">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-700 mb-1">Slug (Link)</label>
+                                    <div class="flex border border-gray-300 rounded-xl overflow-hidden focus-within:border-purple-500">
+                                        <span class="px-3 py-2.5 bg-gray-100 text-gray-500 text-sm border-r">wa.com/</span>
+                                        <input type="text" id="new-t-slug" required class="flex-1 px-3 py-2.5 bg-gray-50 outline-none text-sm font-mono">
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-700 mb-1">E-mail</label>
+                                    <input type="email" id="new-t-email" required class="w-full px-4 py-2.5 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:border-purple-500">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-700 mb-1">Senha Temporária</label>
+                                    <input type="password" id="new-t-pass" required minlength="6" class="w-full px-4 py-2.5 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:border-purple-500">
+                                </div>
+                                <div class="mt-6 flex gap-3">
+                                    <button type="button" onclick="closeModal()" class="flex-1 py-3 rounded-xl bg-gray-100 text-gray-600 font-bold hover:bg-gray-200">Cancelar</button>
+                                    <button type="submit" id="btn-create-tenant" class="flex-1 py-3 rounded-xl bg-purple-600 text-white font-bold hover:bg-purple-700">Criar Conta</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            `;
+            openModal(html);
+        }
+
+        window.submitAdminCreateTenant = async function(e) {
+            e.preventDefault();
+            const btn = document.getElementById('btn-create-tenant');
+            btn.innerHTML = '<div class="loader w-4 h-4 border-2 border-white border-t-transparent mx-auto"></div>';
+            btn.disabled = true;
+
+            const name = document.getElementById('new-t-name').value;
+            const slug = document.getElementById('new-t-slug').value.toLowerCase();
+            const email = document.getElementById('new-t-email').value;
+            const pass = document.getElementById('new-t-pass').value;
+
+            try {
+                // Import secundário para não deslogar o Super Admin
+                const { createUserWithEmailAndPassword: createUserSecondary, updateProfile: updateProfileSecondary, signOut: signOutSecondary } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js");
+                
+                const userCreds = await createUserSecondary(secondaryAuth, email, pass);
+                await updateProfileSecondary(userCreds.user, { displayName: name });
+                
+                // Salva no banco de dados principal
+                await setDoc(doc(db, collections.tenants, userCreds.user.uid), {
+                    name: name,
+                    slug: slug,
+                    email: email,
+                    status: 'active',
+                    plan: 'trial',
+                    createdAt: serverTimestamp(),
+                    settings: { open: true, minOrder: 0, primaryColor: '#ef4444' }
+                });
+
+                await signOutSecondary(secondaryAuth);
+
+                showToast('Lojista criado com sucesso!');
+                closeModal();
+                loadSuperAdminData();
+            } catch (error) {
+                showToast('Erro: ' + error.message, 'error');
+                btn.innerHTML = 'Criar Conta';
+                btn.disabled = false;
+            }
+        }
+
+        async function loadAdminData() {
+            if (!state.currentTenant) return;
+            const q = query(collection(db, collections.products), where("tenantId", "==", state.currentTenant.id));
+            const snap = await getDocs(q);
+            state.adminProducts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            
+            const oq = query(collection(db, collections.orders), where("tenantId", "==", state.currentTenant.id));
+            const osnap = await getDocs(oq);
+            state.adminOrders = osnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => b.createdAt - a.createdAt);
+
+            const contentDiv = document.getElementById('admin-content');
+            if (contentDiv) contentDiv.innerHTML = getAdminContent(window.location.hash.split('/')[2] || 'dashboard');
+        }
+
+        window.renderAdmin = function(container, hash) {
+            loadAdminData();
+            const subRoute = hash.split('/')[2] || 'dashboard';
+            const tenant = state.currentTenant;
+
+            container.innerHTML = `
+                <div class="flex h-screen bg-gray-50 fade-in text-sm">
+                    <aside class="w-64 bg-gray-900 text-white flex flex-col hidden md:flex">
+                        <div class="p-6 border-b border-gray-800">
+                            <div class="font-black text-xl flex items-center gap-2"><i class="fas fa-store text-brand-500"></i> ${tenant?.name || 'Carregando...'}</div>
+                            <div class="mt-2 text-xs text-gray-400 font-mono truncate"><a href="#/cardapio/${tenant?.slug}" target="_blank" class="hover:text-white">wa.com/${tenant?.slug}</a></div>
+                        </div>
+                        <nav class="flex-grow px-4 space-y-1 mt-4">
+                            <a href="#/admin/dashboard" class="flex items-center gap-3 px-4 py-3 rounded-xl transition ${subRoute === 'dashboard' ? 'bg-brand-600 font-bold' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-chart-pie w-5"></i> Visão Geral</a>
+                            <a href="#/admin/pedidos" class="flex items-center gap-3 px-4 py-3 rounded-xl transition ${subRoute === 'pedidos' ? 'bg-brand-600 font-bold' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-receipt w-5"></i> Pedidos</a>
+                            <a href="#/admin/cardapio" class="flex items-center gap-3 px-4 py-3 rounded-xl transition ${subRoute === 'cardapio' ? 'bg-brand-600 font-bold' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-utensils w-5"></i> Meu Cardápio</a>
+                        </nav>
+                        <div class="p-4 border-t border-gray-800">
+                            <button onclick="doLogout()" class="w-full flex items-center gap-3 px-4 py-3 text-red-400 hover:bg-red-500/10 rounded-xl font-bold transition"><i class="fas fa-power-off w-5"></i> Sair do Painel</button>
+                        </div>
+                    </aside>
+                    <main class="flex-grow flex flex-col overflow-hidden">
+                        <header class="h-16 bg-white border-b px-8 flex items-center justify-between shrink-0 shadow-sm z-10">
+                            <h2 class="text-lg font-bold text-gray-800 capitalize"><i class="fas fa-circle text-[10px] text-green-500 mr-2"></i> ${subRoute}</h2>
+                            <div class="flex items-center gap-4">
+                                <a href="#/cardapio/${tenant?.slug}" target="_blank" class="text-sm font-bold text-brand-600 bg-brand-50 px-4 py-1.5 rounded-full hover:bg-brand-100 transition"><i class="fas fa-external-link-alt mr-1"></i> Ver Loja</a>
+                            </div>
+                        </header>
+                        <div class="flex-grow p-4 md:p-8 overflow-y-auto" id="admin-content">
+                            <div class="flex justify-center h-full items-center"><div class="loader w-8 h-8 border-4 border-gray-200 border-t-brand-500"></div></div>
+                        </div>
+                    </main>
+                </div>
+            `;
+        }
+
+        function getAdminContent(route) {
+            if (route === 'cardapio') return renderAdminMenuBuilder();
+            if (route === 'pedidos') return renderAdminOrders();
+            
+            // Dashboard
+            const faturamento = state.adminOrders.reduce((sum, o) => sum + (o.status !== 'cancelado' ? o.total : 0), 0);
+            return `
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                    <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+                        <p class="text-gray-500 font-bold mb-1 uppercase text-xs">Vendas Totais</p>
+                        <h3 class="text-3xl font-black text-gray-800">${faturamento.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</h3>
+                    </div>
+                    <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+                        <p class="text-gray-500 font-bold mb-1 uppercase text-xs">Pedidos</p>
+                        <h3 class="text-3xl font-black text-gray-800">${state.adminOrders.length}</h3>
+                    </div>
+                    <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+                        <p class="text-gray-500 font-bold mb-1 uppercase text-xs">Produtos Cadastrados</p>
+                        <h3 class="text-3xl font-black text-gray-800">${state.adminProducts.length}</h3>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderAdminMenuBuilder() {
+            return `
+                <div class="flex justify-between items-center mb-6">
+                    <h3 class="font-bold text-gray-800 text-lg">Produtos Cadastrados</h3>
+                    <button onclick="openProductModal()" class="bg-brand-500 hover:bg-brand-600 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg shadow-brand-500/30 transition flex items-center gap-2">
+                        <i class="fas fa-plus"></i> Novo Produto
+                    </button>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    ${state.adminProducts.map(p => `
+                        <div class="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm flex items-start gap-4">
+                            <div class="w-20 h-20 bg-gray-100 rounded-xl flex-shrink-0 bg-cover bg-center" style="background-image: url('${p.image || 'https://placehold.co/100x100/eeeeee/999999?text=Sem+Foto'}')"></div>
+                            <div class="flex-grow">
+                                <h4 class="font-bold text-gray-800 leading-tight mb-1">${p.name}</h4>
+                                <p class="text-brand-600 font-black text-sm mb-2">${p.price.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</p>
+                                <div class="flex gap-2">
+                                    <button onclick="deleteProduct('${p.id}')" class="text-red-500 hover:bg-red-50 px-2 py-1 rounded text-xs font-bold transition">Excluir</button>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('')}
+                    ${state.adminProducts.length === 0 ? `<div class="col-span-full p-12 text-center text-gray-400 font-medium border-2 border-dashed border-gray-200 rounded-2xl">Nenhum produto cadastrado ainda. Clique em Novo Produto para começar.</div>` : ''}
+                </div>
+            `;
+        }
+
+        window.openProductModal = function() {
+            const html = `
+                <div class="fixed inset-0 z-50 flex items-center justify-center p-4 overlay fade-in">
+                    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
+                        <div class="p-6 border-b flex justify-between items-center">
+                            <h3 class="font-bold text-gray-800 text-lg">Novo Produto</h3>
+                            <button onclick="closeModal()" class="text-gray-400 hover:text-gray-800 text-xl leading-none">&times;</button>
+                        </div>
+                        <div class="p-6">
+                            <form class="space-y-4" onsubmit="saveProduct(event)">
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-700 mb-1">Nome do Produto</label>
+                                    <input type="text" id="prod-name" required class="w-full px-4 py-2.5 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:border-brand-500">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-700 mb-1">Descrição</label>
+                                    <textarea id="prod-desc" rows="2" class="w-full px-4 py-2.5 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:border-brand-500 resize-none"></textarea>
+                                </div>
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-xs font-bold text-gray-700 mb-1">Preço (R$)</label>
+                                        <input type="number" id="prod-price" required step="0.01" min="0" class="w-full px-4 py-2.5 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:border-brand-500">
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-bold text-gray-700 mb-1">URL da Imagem</label>
+                                        <input type="url" id="prod-image" placeholder="https://" class="w-full px-4 py-2.5 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:border-brand-500">
+                                    </div>
+                                </div>
+                                <div class="mt-6 flex gap-3">
+                                    <button type="button" onclick="closeModal()" class="flex-1 py-3 rounded-xl bg-gray-100 text-gray-600 font-bold hover:bg-gray-200">Cancelar</button>
+                                    <button type="submit" id="btn-save-prod" class="flex-1 py-3 rounded-xl bg-brand-500 text-white font-bold hover:bg-brand-600 shadow-lg shadow-brand-500/30">Salvar Produto</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            `;
+            openModal(html);
+        }
+
+        window.saveProduct = async function(e) {
+            e.preventDefault();
+            const btn = document.getElementById('btn-save-prod');
+            btn.disabled = true; btn.innerHTML = 'Salvando...';
+
+            const prod = {
+                tenantId: state.currentTenant.id,
+                name: document.getElementById('prod-name').value,
+                description: document.getElementById('prod-desc').value,
+                price: parseFloat(document.getElementById('prod-price').value),
+                image: document.getElementById('prod-image').value,
+                active: true,
+                createdAt: Date.now()
+            };
+
+            try {
+                const docRef = doc(collection(db, collections.products));
+                await setDoc(docRef, prod);
+                showToast('Produto adicionado!');
+                closeModal();
+                loadAdminData();
+            } catch (err) {
+                showToast('Erro ao salvar.', 'error');
+                btn.disabled = false; btn.innerHTML = 'Salvar Produto';
+            }
+        }
+
+        window.deleteProduct = async function(id) {
+            if(confirm("Tem certeza que deseja excluir este produto?")) {
+                await deleteDoc(doc(db, collections.products, id));
+                showToast("Produto excluído.");
+                loadAdminData();
+            }
+        }
+
+        function renderAdminOrders() {
+            return `
+                <h3 class="font-bold text-gray-800 text-lg mb-6">Histórico de Pedidos</h3>
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                    <table class="w-full text-left">
+                        <thead class="bg-gray-50 text-xs uppercase text-gray-500 font-bold border-b border-gray-100">
+                            <tr>
+                                <th class="p-4">Cliente</th>
+                                <th class="p-4">Itens</th>
+                                <th class="p-4">Total</th>
+                                <th class="p-4">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100 text-sm">
+                            ${state.adminOrders.map(o => `
+                                <tr class="hover:bg-gray-50">
+                                    <td class="p-4 font-bold text-gray-800">
+                                        ${o.customer.name}<br>
+                                        <span class="text-xs text-gray-400 font-normal">${o.customer.phone}</span>
+                                    </td>
+                                    <td class="p-4 text-gray-600">${o.items.length} itens</td>
+                                    <td class="p-4 font-black text-brand-600">${o.total.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</td>
+                                    <td class="p-4"><span class="px-2 py-1 bg-yellow-100 text-yellow-700 rounded text-xs font-bold border border-yellow-200 uppercase">${o.status}</span></td>
+                                </tr>
+                            `).join('')}
+                            ${state.adminOrders.length === 0 ? `<tr><td colspan="4" class="p-8 text-center text-gray-400">Nenhum pedido recebido.</td></tr>` : ''}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        async function loadPublicMenuData(slug) {
+            const q = query(collection(db, collections.tenants), where("slug", "==", slug));
+            const snap = await getDocs(q);
+            if (snap.empty) {
+                state.publicTenant = null;
+                return;
+            }
+            state.publicTenant = { id: snap.docs[0].id, ...snap.docs[0].data() };
+
+            const pq = query(collection(db, collections.products), where("tenantId", "==", state.publicTenant.id));
+            const psnap = await getDocs(pq);
+            state.publicProducts = psnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        }
+
+        window.renderPublicMenu = function(container) {
+            if (!state.publicTenant) {
+                container.innerHTML = `<div class="min-h-screen flex items-center justify-center flex-col"><i class="fas fa-store-slash text-4xl text-gray-300 mb-4"></i><h2 class="text-xl font-bold">Restaurante não encontrado.</h2><a href="#/" class="text-brand-500 mt-4 font-bold">Voltar</a></div>`;
+                return;
+            }
+
+            const t = state.publicTenant;
+            container.innerHTML = `
+                <div class="min-h-screen bg-gray-50 pb-24 text-sm fade-in">
+                    <!-- Banner & Header -->
+                    <div class="h-48 bg-gradient-to-r from-gray-800 to-gray-900 relative">
+                        <div class="absolute inset-0 bg-black/20"></div>
+                        <div class="absolute -bottom-10 left-4 md:left-12 flex items-end gap-4">
+                            <div class="w-24 h-24 bg-white rounded-2xl shadow-lg border-4 border-white flex items-center justify-center text-3xl font-black text-brand-500 uppercase overflow-hidden">
+                                ${t.name.charAt(0)}
+                            </div>
+                            <div class="mb-2">
+                                <h1 class="text-2xl font-black text-white drop-shadow-md">${t.name}</h1>
+                                <span class="px-2 py-0.5 bg-green-500 text-white rounded text-xs font-bold shadow uppercase tracking-wider">Aberto</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="pt-16 px-4 md:px-12 max-w-5xl mx-auto">
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="public-products">
+                            ${state.publicProducts.map(p => `
+                                <div class="bg-white rounded-2xl overflow-hidden shadow-sm border border-gray-100 group hover:shadow-md transition">
+                                    <div class="h-40 bg-gray-100 bg-cover bg-center" style="background-image: url('${p.image || 'https://placehold.co/400x300/eeeeee/999999?text=Sem+Foto'}')"></div>
+                                    <div class="p-4 flex flex-col h-full">
+                                        <h3 class="font-bold text-gray-800 text-lg mb-1 leading-tight">${p.name}</h3>
+                                        <p class="text-xs text-gray-500 mb-4 line-clamp-2">${p.description}</p>
+                                        <div class="mt-auto flex justify-between items-center">
+                                            <span class="font-black text-brand-600 text-lg">${p.price.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</span>
+                                            <button onclick="addToCart('${p.id}')" class="bg-brand-50 text-brand-600 hover:bg-brand-500 hover:text-white w-10 h-10 rounded-xl flex items-center justify-center font-bold transition">
+                                                <i class="fas fa-plus"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            `).join('')}
+                            ${state.publicProducts.length === 0 ? `<div class="col-span-full py-12 text-center text-gray-500">Este restaurante ainda não possui itens no cardápio.</div>` : ''}
+                        </div>
+                    </div>
+
+                    <!-- Botão Carrinho Fixo Mobile -->
+                    <div class="fixed bottom-0 left-0 w-full p-4 bg-white border-t border-gray-200 shadow-[0_-10px_40px_rgba(0,0,0,0.05)] z-40 transform transition-transform duration-300 ${state.cart.length > 0 ? 'translate-y-0' : 'translate-y-full'}">
+                        <div class="max-w-5xl mx-auto flex gap-4">
+                            <button onclick="renderCart()" class="w-full bg-brand-500 text-white font-bold py-4 rounded-xl shadow-lg shadow-brand-500/30 flex justify-between items-center px-6">
+                                <span class="flex items-center gap-2"><div class="w-6 h-6 bg-white/20 rounded-full flex items-center justify-center text-xs" id="cart-count">${state.cart.length}</div> Ver Carrinho</span>
+                                <span id="cart-total-btn">R$ 0,00</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            updateCartTotal();
+        }
+
+        window.addToCart = function(productId) {
+            const product = state.publicProducts.find(p => p.id === productId);
+            if (!product) return;
+            
+            const existing = state.cart.find(item => item.product.id === productId);
+            if (existing) {
+                existing.quantity++;
+            } else {
+                state.cart.push({ product, quantity: 1 });
+            }
+            
+            showToast(`${product.name} adicionado!`);
+            updateCartTotal();
+            
+            // Força re-render do menu para exibir o botão flutuante se foi o primeiro item
+            if(state.cart.length === 1) handleRoute(); 
+        }
+
+        function updateCartTotal() {
+            const total = state.cart.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
+            const btnTotal = document.getElementById('cart-total-btn');
+            const count = document.getElementById('cart-count');
+            if(btnTotal) btnTotal.innerText = total.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'});
+            if(count) count.innerText = state.cart.reduce((sum, item) => sum + item.quantity, 0);
+        }
+
+        window.renderCart = function() {
+            const total = state.cart.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
+            
+            const html = `
+                <div class="fixed inset-0 z-50 flex justify-end overlay fade-in">
+                    <div class="bg-white w-full max-w-md h-full flex flex-col shadow-2xl slide-left">
+                        <div class="p-6 border-b flex justify-between items-center bg-gray-50">
+                            <h3 class="font-black text-gray-800 text-xl"><i class="fas fa-shopping-bag text-brand-500 mr-2"></i> Seu Pedido</h3>
+                            <button onclick="closeModal()" class="w-8 h-8 bg-white border rounded-full text-gray-500 hover:text-gray-800 flex items-center justify-center shadow-sm">&times;</button>
+                        </div>
+                        
+                        <div class="flex-grow overflow-y-auto p-6 space-y-4">
+                            ${state.cart.map((item, index) => `
+                                <div class="flex justify-between items-center pb-4 border-b border-gray-100 last:border-0">
+                                    <div class="flex gap-3 items-center">
+                                        <div class="font-bold text-gray-800">${item.quantity}x</div>
+                                        <div>
+                                            <p class="font-bold text-gray-800">${item.product.name}</p>
+                                            <p class="text-brand-600 font-bold text-xs">${(item.product.price * item.quantity).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</p>
+                                        </div>
+                                    </div>
+                                    <button onclick="state.cart.splice(${index}, 1); updateCartTotal(); renderCart();" class="text-red-400 hover:text-red-600 p-2"><i class="fas fa-trash"></i></button>
+                                </div>
+                            `).join('')}
+                            ${state.cart.length === 0 ? `<div class="text-center text-gray-400 mt-10"><i class="fas fa-shopping-cart text-4xl mb-3 opacity-20"></i><p>Seu carrinho está vazio.</p></div>` : ''}
+                        </div>
+
+                        ${state.cart.length > 0 ? `
+                        <div class="p-6 border-t bg-gray-50">
+                            <div class="flex justify-between items-center mb-6 text-lg">
+                                <span class="font-bold text-gray-600">Total</span>
+                                <span class="font-black text-gray-900">${total.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</span>
+                            </div>
+                            <form onsubmit="checkout(event)" class="space-y-3">
+                                <input type="text" id="c-name" required placeholder="Seu Nome" class="w-full px-4 py-3 bg-white border border-gray-300 rounded-xl outline-none focus:border-brand-500 text-sm">
+                                <input type="text" id="c-phone" required placeholder="Seu WhatsApp" class="w-full px-4 py-3 bg-white border border-gray-300 rounded-xl outline-none focus:border-brand-500 text-sm">
+                                <button type="submit" id="btn-checkout" class="w-full py-4 bg-brand-500 text-white font-black rounded-xl hover:bg-brand-600 shadow-lg shadow-brand-500/30 transition text-lg mt-2">
+                                    Finalizar Pedido
+                                </button>
+                            </form>
+                        </div>
+                        ` : ''}
+                    </div>
+                </div>
+                <style>.slide-left { animation: slideLeft 0.3s ease-out; } @keyframes slideLeft { from { transform: translateX(100%); } to { transform: translateX(0); } }</style>
+            `;
+            openModal(html);
+        }
+
+        window.checkout = async function(e) {
+            e.preventDefault();
+            if(state.cart.length === 0) return;
+            
+            const btn = document.getElementById('btn-checkout');
+            btn.disabled = true; btn.innerHTML = 'Processando...';
+
+            const name = document.getElementById('c-name').value;
+            const phone = document.getElementById('c-phone').value;
+            const total = state.cart.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
+
+            const order = {
+                tenantId: state.publicTenant.id,
+                customer: { name, phone },
+                items: state.cart.map(i => ({ productId: i.product.id, name: i.product.name, price: i.product.price, quantity: i.quantity })),
+                total: total,
+                status: 'novo',
+                createdAt: Date.now()
+            };
+
+            try {
+                await setDoc(doc(collection(db, collections.orders)), order);
+                state.cart = [];
+                closeModal();
+                
+                openModal(`
+                    <div class="fixed inset-0 z-50 flex items-center justify-center p-4 overlay fade-in">
+                        <div class="bg-white rounded-3xl shadow-2xl p-8 text-center max-w-sm w-full">
+                            <div class="w-20 h-20 bg-green-100 text-green-500 rounded-full flex items-center justify-center text-4xl mx-auto mb-6"><i class="fas fa-check"></i></div>
+                            <h2 class="text-2xl font-black text-gray-800 mb-2">Pedido Enviado!</h2>
+                            <p class="text-gray-500 mb-6">O restaurante já recebeu o seu pedido. Em breve ele começará a ser preparado.</p>
+                            <button onclick="closeModal(); handleRoute();" class="w-full bg-gray-900 text-white font-bold py-3.5 rounded-xl">Fechar</button>
+                        </div>
+                    </div>
+                `);
+            } catch(err) {
+                showToast("Erro ao processar pedido.", "error");
+                btn.disabled = false; btn.innerHTML = 'Finalizar Pedido';
+            }
+        }
+
+        window.onload = () => {
+            setupRouter();
+            initializeAppAuth();
+        };
     </script>
 </body>
 </html>
