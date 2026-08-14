@@ -1,4 +1,99 @@
 <!DOCTYPE html>
+<html>
+<head>
+    <title>Configurar Super Admin</title>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
+</head>
+<body>
+    <h1>Configurar Super Admin</h1>
+    <button onclick="setupSuperAdmin()">Configurar Super Admin</button>
+    <div id="result"></div>
+
+    <script>
+        // Configuração do Firebase
+        const firebaseConfig = {
+            apiKey: "AIzaSyCZyMVAn_F3me72l8N1PqKTfgnb0cQpUKA",
+            authDomain: "sistema-restaurantes-6baf8.firebaseapp.com",
+            projectId: "sistema-restaurantes-6baf8",
+            storageBucket: "sistema-restaurantes-6baf8.firebasestorage.app",
+            messagingSenderId: "753663577381",
+            appId: "1:753663577381:web:9771b3c0004264b2745ecc",
+            measurementId: "G-0B4Q7M2V5K"
+        };
+
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+
+        async function setupSuperAdmin() {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = '<p>Processando...</p>';
+            
+            const email = "willdalves1@gmail.com";
+            const password = "Will@123456";
+            
+            try {
+                // Verificar se usuário existe
+                const signInMethods = await auth.fetchSignInMethodsForEmail(email);
+                
+                if (signInMethods.length > 0) {
+                    // Usuário existe
+                    resultDiv.innerHTML = '<p>Usuário já existe. Tentando login...</p>';
+                    
+                    try {
+                        // Tentar login
+                        const userCredential = await auth.signInWithEmailAndPassword(email, password);
+                        resultDiv.innerHTML += '<p style="color: green;">Login realizado com sucesso!</p>';
+                        
+                        // Atualizar para superadmin
+                        await db.collection('users').doc(userCredential.user.uid).set({
+                            email: email,
+                            role: 'superadmin',
+                            tenantId: null,
+                            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                        }, { merge: true });
+                        
+                        resultDiv.innerHTML += '<p style="color: green;">✅ Super Admin configurado com sucesso!</p>';
+                        resultDiv.innerHTML += '<p>Email: ' + email + '</p>';
+                        
+                    } catch (loginError) {
+                        resultDiv.innerHTML += '<p style="color: orange;">Não foi possível fazer login. Senha incorreta.</p>';
+                        resultDiv.innerHTML += '<p>Enviando email de redefinição de senha...</p>';
+                        
+                        await auth.sendPasswordResetEmail(email);
+                        resultDiv.innerHTML += '<p style="color: green;">✅ Email de redefinição enviado para ' + email + '</p>';
+                    }
+                } else {
+                    // Criar novo usuário
+                    resultDiv.innerHTML = '<p>Criando novo usuário...</p>';
+                    
+                    const userCredential = await auth.createUserWithEmailAndPassword(email, password);
+                    resultDiv.innerHTML += '<p style="color: green;">✅ Usuário criado com sucesso!</p>';
+                    
+                    // Salvar como superadmin
+                    await db.collection('users').doc(userCredential.user.uid).set({
+                        email: email,
+                        role: 'superadmin',
+                        tenantId: null,
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        status: 'active'
+                    });
+                    
+                    resultDiv.innerHTML += '<p style="color: green;">✅ Super Admin configurado!</p>';
+                    resultDiv.innerHTML += '<p>Email: ' + email + '</p>';
+                    resultDiv.innerHTML += '<p>Senha: ' + password + '</p>';
+                }
+            } catch (error) {
+                resultDiv.innerHTML = '<p style="color: red;">❌ Erro: ' + error.message + '</p>';
+                console.error('Erro detalhado:', error);
+            }
+        }
+    </script>
+</body>
+</html>
+<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
