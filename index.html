@@ -8,6 +8,8 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
     
     <script>
         tailwind.config = {
@@ -42,8 +44,27 @@
         /* Ajuste para altura das imagens no mobile */
         @media (max-width: 768px) {
             .product-image-mobile {
-                height: 250px !important; /* Aumentado de h-40 (160px) para 250px */
+                height: 250px !important;
             }
+        }
+        
+        /* Estilos para o Cropper */
+        .cropper-container {
+            max-height: 400px;
+        }
+        
+        .cropper-modal {
+            background-color: #000;
+            opacity: 0.5;
+        }
+        
+        .cropper-view-box {
+            border-radius: 8px;
+            outline: 2px solid #ef4444;
+        }
+        
+        .cropper-face {
+            border-radius: 8px;
         }
     </style>
 </head>
@@ -390,7 +411,9 @@
                         settings: {
                             open: true,
                             minOrder: 0,
-                            primaryColor: '#ef4444'
+                            primaryColor: '#ef4444',
+                            coverImage: '',
+                            profileImage: ''
                         }
                     });
                     showToast('Restaurante criado com sucesso! Bem-vindo(a).');
@@ -576,13 +599,11 @@
             const pass = document.getElementById('new-t-pass').value;
 
             try {
-                // Import secundário para não deslogar o Super Admin
                 const { createUserWithEmailAndPassword: createUserSecondary, updateProfile: updateProfileSecondary, signOut: signOutSecondary } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js");
                 
                 const userCreds = await createUserSecondary(secondaryAuth, email, pass);
                 await updateProfileSecondary(userCreds.user, { displayName: name });
                 
-                // Salva no banco de dados principal
                 await setDoc(doc(db, collections.tenants, userCreds.user.uid), {
                     name: name,
                     slug: slug,
@@ -590,7 +611,13 @@
                     status: 'active',
                     plan: 'trial',
                     createdAt: serverTimestamp(),
-                    settings: { open: true, minOrder: 0, primaryColor: '#ef4444' }
+                    settings: { 
+                        open: true, 
+                        minOrder: 0, 
+                        primaryColor: '#ef4444',
+                        coverImage: '',
+                        profileImage: ''
+                    }
                 });
 
                 await signOutSecondary(secondaryAuth);
@@ -659,7 +686,6 @@
             if (route === 'cardapio') return renderAdminMenuBuilder();
             if (route === 'pedidos') return renderAdminOrders();
             
-            // Dashboard
             const faturamento = state.adminOrders.reduce((sum, o) => sum + (o.status !== 'cancelado' ? o.total : 0), 0);
             return `
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
@@ -681,6 +707,34 @@
 
         function renderAdminMenuBuilder() {
             return `
+                <div class="mb-6">
+                    <h3 class="font-bold text-gray-800 text-lg mb-4">Configurações do Cardápio</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                        <button onclick="openImageEditor('profile')" class="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition text-left">
+                            <div class="flex items-center gap-3">
+                                <div class="w-12 h-12 bg-brand-50 rounded-xl flex items-center justify-center text-brand-500">
+                                    <i class="fas fa-user-circle text-xl"></i>
+                                </div>
+                                <div>
+                                    <p class="font-bold text-gray-800">Editar Foto do Perfil</p>
+                                    <p class="text-xs text-gray-500">Logo do restaurante</p>
+                                </div>
+                            </div>
+                        </button>
+                        <button onclick="openImageEditor('cover')" class="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition text-left">
+                            <div class="flex items-center gap-3">
+                                <div class="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center text-blue-500">
+                                    <i class="fas fa-image text-xl"></i>
+                                </div>
+                                <div>
+                                    <p class="font-bold text-gray-800">Editar Foto do Topo</p>
+                                    <p class="text-xs text-gray-500">Banner do cardápio</p>
+                                </div>
+                            </div>
+                        </button>
+                    </div>
+                </div>
+                
                 <div class="flex justify-between items-center mb-6">
                     <h3 class="font-bold text-gray-800 text-lg">Produtos Cadastrados</h3>
                     <button onclick="openProductModal()" class="bg-brand-500 hover:bg-brand-600 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg shadow-brand-500/30 transition flex items-center gap-2">
@@ -689,13 +743,13 @@
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     ${state.adminProducts.map(p => `
-                        <div class="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm flex items-start gap-4">
+                        <div class="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm flex items-start gap-4 cursor-pointer hover:shadow-md transition" onclick="openProductEditor('${p.id}')">
                             <div class="w-20 h-20 bg-gray-100 rounded-xl flex-shrink-0 bg-cover bg-center" style="background-image: url('${p.image || 'https://placehold.co/100x100/eeeeee/999999?text=Sem+Foto'}')"></div>
                             <div class="flex-grow">
                                 <h4 class="font-bold text-gray-800 leading-tight mb-1">${p.name}</h4>
                                 <p class="text-brand-600 font-black text-sm mb-2">${p.price.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</p>
                                 <div class="flex gap-2">
-                                    <button onclick="deleteProduct('${p.id}')" class="text-red-500 hover:bg-red-50 px-2 py-1 rounded text-xs font-bold transition">Excluir</button>
+                                    <button onclick="event.stopPropagation(); deleteProduct('${p.id}')" class="text-red-500 hover:bg-red-50 px-2 py-1 rounded text-xs font-bold transition">Excluir</button>
                                 </div>
                             </div>
                         </div>
@@ -703,6 +757,109 @@
                     ${state.adminProducts.length === 0 ? `<div class="col-span-full p-12 text-center text-gray-400 font-medium border-2 border-dashed border-gray-200 rounded-2xl">Nenhum produto cadastrado ainda. Clique em Novo Produto para começar.</div>` : ''}
                 </div>
             `;
+        }
+
+        window.openImageEditor = function(type) {
+            const isProfile = type === 'profile';
+            const currentImage = isProfile 
+                ? (state.currentTenant?.settings?.profileImage || '')
+                : (state.currentTenant?.settings?.coverImage || '');
+            
+            const html = `
+                <div class="fixed inset-0 z-50 flex items-center justify-center p-4 overlay fade-in">
+                    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col">
+                        <div class="p-6 border-b flex justify-between items-center">
+                            <h3 class="font-bold text-gray-800 text-lg">
+                                <i class="fas ${isProfile ? 'fa-user-circle' : 'fa-image'} text-brand-500 mr-2"></i>
+                                ${isProfile ? 'Editar Foto do Perfil' : 'Editar Foto do Topo'}
+                            </h3>
+                            <button onclick="closeModal()" class="text-gray-400 hover:text-gray-800 text-xl leading-none">&times;</button>
+                        </div>
+                        <div class="p-6">
+                            <div class="mb-4">
+                                <label class="block text-xs font-bold text-gray-700 mb-2">URL da Imagem</label>
+                                <input type="url" id="image-url-input" value="${currentImage}" placeholder="https://exemplo.com/imagem.jpg" class="w-full px-4 py-2.5 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:border-brand-500">
+                            </div>
+                            <div class="mb-4">
+                                <label class="block text-xs font-bold text-gray-700 mb-2">Ou envie do seu dispositivo</label>
+                                <input type="file" id="image-file-input" accept="image/*" class="w-full px-4 py-2.5 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:border-brand-500">
+                            </div>
+                            <div id="image-preview-container" class="mb-4 ${currentImage ? '' : 'hidden'}">
+                                <img id="image-preview" src="${currentImage}" class="w-full h-48 object-cover rounded-xl border border-gray-200">
+                            </div>
+                            <div class="flex gap-3">
+                                <button onclick="closeModal()" class="flex-1 py-3 rounded-xl bg-gray-100 text-gray-600 font-bold hover:bg-gray-200">Cancelar</button>
+                                <button onclick="saveImage('${type}')" class="flex-1 py-3 rounded-xl bg-brand-500 text-white font-bold hover:bg-brand-600 shadow-lg shadow-brand-500/30">Salvar</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            openModal(html);
+            
+            // Configurar listeners para inputs
+            setTimeout(() => {
+                const fileInput = document.getElementById('image-file-input');
+                const urlInput = document.getElementById('image-url-input');
+                const preview = document.getElementById('image-preview');
+                const previewContainer = document.getElementById('image-preview-container');
+                
+                fileInput.addEventListener('change', function(e) {
+                    const file = e.target.files[0];
+                    if (file) {
+                        const reader = new FileReader();
+                        reader.onload = function(event) {
+                            const dataUrl = event.target.result;
+                            urlInput.value = dataUrl;
+                            preview.src = dataUrl;
+                            previewContainer.classList.remove('hidden');
+                        };
+                        reader.readAsDataURL(file);
+                    }
+                });
+                
+                urlInput.addEventListener('input', function() {
+                    if (urlInput.value) {
+                        preview.src = urlInput.value;
+                        previewContainer.classList.remove('hidden');
+                    } else {
+                        previewContainer.classList.add('hidden');
+                    }
+                });
+            }, 100);
+        }
+
+        window.saveImage = async function(type) {
+            const urlInput = document.getElementById('image-url-input');
+            const imageUrl = urlInput.value.trim();
+            
+            if (!imageUrl) {
+                showToast('Por favor, insira uma URL ou selecione uma imagem.', 'error');
+                return;
+            }
+            
+            try {
+                const tenantRef = doc(db, collections.tenants, state.currentTenant.id);
+                
+                if (type === 'profile') {
+                    await updateDoc(tenantRef, {
+                        'settings.profileImage': imageUrl
+                    });
+                    state.currentTenant.settings.profileImage = imageUrl;
+                    showToast('Foto do perfil atualizada!');
+                } else {
+                    await updateDoc(tenantRef, {
+                        'settings.coverImage': imageUrl
+                    });
+                    state.currentTenant.settings.coverImage = imageUrl;
+                    showToast('Foto do topo atualizada!');
+                }
+                
+                closeModal();
+                loadAdminData();
+            } catch (error) {
+                showToast('Erro ao salvar imagem: ' + error.message, 'error');
+            }
         }
 
         window.openProductModal = function() {
@@ -733,6 +890,13 @@
                                         <input type="url" id="prod-image" placeholder="https://" class="w-full px-4 py-2.5 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:border-brand-500">
                                     </div>
                                 </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-700 mb-1">Ou envie do dispositivo</label>
+                                    <input type="file" id="prod-image-file" accept="image/*" class="w-full px-4 py-2.5 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:border-brand-500">
+                                </div>
+                                <div id="prod-image-preview" class="hidden">
+                                    <img id="prod-image-preview-img" class="w-full h-32 object-cover rounded-xl border border-gray-200">
+                                </div>
                                 <div class="mt-6 flex gap-3">
                                     <button type="button" onclick="closeModal()" class="flex-1 py-3 rounded-xl bg-gray-100 text-gray-600 font-bold hover:bg-gray-200">Cancelar</button>
                                     <button type="submit" id="btn-save-prod" class="flex-1 py-3 rounded-xl bg-brand-500 text-white font-bold hover:bg-brand-600 shadow-lg shadow-brand-500/30">Salvar Produto</button>
@@ -743,6 +907,27 @@
                 </div>
             `;
             openModal(html);
+            
+            setTimeout(() => {
+                const fileInput = document.getElementById('prod-image-file');
+                const urlInput = document.getElementById('prod-image');
+                const preview = document.getElementById('prod-image-preview');
+                const previewImg = document.getElementById('prod-image-preview-img');
+                
+                fileInput.addEventListener('change', function(e) {
+                    const file = e.target.files[0];
+                    if (file) {
+                        const reader = new FileReader();
+                        reader.onload = function(event) {
+                            const dataUrl = event.target.result;
+                            urlInput.value = dataUrl;
+                            previewImg.src = dataUrl;
+                            preview.classList.remove('hidden');
+                        };
+                        reader.readAsDataURL(file);
+                    }
+                });
+            }, 100);
         }
 
         window.saveProduct = async function(e) {
@@ -770,6 +955,206 @@
                 showToast('Erro ao salvar.', 'error');
                 btn.disabled = false; btn.innerHTML = 'Salvar Produto';
             }
+        }
+
+        window.openProductEditor = function(productId) {
+            const product = state.adminProducts.find(p => p.id === productId);
+            if (!product) return;
+            
+            const html = `
+                <div class="fixed inset-0 z-50 flex items-center justify-center p-4 overlay fade-in">
+                    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+                        <div class="p-6 border-b flex justify-between items-center">
+                            <h3 class="font-bold text-gray-800 text-lg">
+                                <i class="fas fa-edit text-brand-500 mr-2"></i>
+                                Editar Produto
+                            </h3>
+                            <button onclick="closeModal()" class="text-gray-400 hover:text-gray-800 text-xl leading-none">&times;</button>
+                        </div>
+                        <div class="p-6 overflow-y-auto flex-grow">
+                            <form class="space-y-4" onsubmit="updateProduct(event, '${productId}')">
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-700 mb-1">Nome do Produto</label>
+                                    <input type="text" id="edit-prod-name" value="${product.name}" required class="w-full px-4 py-2.5 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:border-brand-500">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-700 mb-1">Descrição</label>
+                                    <textarea id="edit-prod-desc" rows="3" class="w-full px-4 py-2.5 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:border-brand-500 resize-none">${product.description || ''}</textarea>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-700 mb-1">Preço (R$)</label>
+                                    <input type="number" id="edit-prod-price" value="${product.price}" required step="0.01" min="0" class="w-full px-4 py-2.5 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:border-brand-500">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-700 mb-1">URL da Imagem</label>
+                                    <input type="url" id="edit-prod-image" value="${product.image || ''}" placeholder="https://" class="w-full px-4 py-2.5 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:border-brand-500">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-700 mb-1">Ou envie do dispositivo</label>
+                                    <input type="file" id="edit-prod-image-file" accept="image/*" class="w-full px-4 py-2.5 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:border-brand-500">
+                                </div>
+                                <div id="edit-prod-image-preview" class="${product.image ? '' : 'hidden'}">
+                                    <img id="edit-prod-image-preview-img" src="${product.image || ''}" class="w-full h-40 object-cover rounded-xl border border-gray-200">
+                                </div>
+                                <div class="mb-4">
+                                    <button type="button" onclick="openCropper('edit-prod-image', 'edit-prod-image-preview-img')" class="w-full py-2 bg-blue-50 text-blue-600 font-bold rounded-xl hover:bg-blue-100 transition text-sm">
+                                        <i class="fas fa-crop-alt mr-2"></i>Recortar Imagem
+                                    </button>
+                                </div>
+                                <div class="mt-6 flex gap-3">
+                                    <button type="button" onclick="closeModal()" class="flex-1 py-3 rounded-xl bg-gray-100 text-gray-600 font-bold hover:bg-gray-200">Cancelar</button>
+                                    <button type="submit" id="btn-update-prod" class="flex-1 py-3 rounded-xl bg-brand-500 text-white font-bold hover:bg-brand-600 shadow-lg shadow-brand-500/30">Salvar Alterações</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            `;
+            openModal(html);
+            
+            setTimeout(() => {
+                const fileInput = document.getElementById('edit-prod-image-file');
+                const urlInput = document.getElementById('edit-prod-image');
+                const preview = document.getElementById('edit-prod-image-preview');
+                const previewImg = document.getElementById('edit-prod-image-preview-img');
+                
+                fileInput.addEventListener('change', function(e) {
+                    const file = e.target.files[0];
+                    if (file) {
+                        const reader = new FileReader();
+                        reader.onload = function(event) {
+                            const dataUrl = event.target.result;
+                            urlInput.value = dataUrl;
+                            previewImg.src = dataUrl;
+                            preview.classList.remove('hidden');
+                        };
+                        reader.readAsDataURL(file);
+                    }
+                });
+                
+                urlInput.addEventListener('input', function() {
+                    if (urlInput.value) {
+                        previewImg.src = urlInput.value;
+                        preview.classList.remove('hidden');
+                    } else {
+                        preview.classList.add('hidden');
+                    }
+                });
+            }, 100);
+        }
+
+        window.updateProduct = async function(e, productId) {
+            e.preventDefault();
+            const btn = document.getElementById('btn-update-prod');
+            btn.disabled = true; btn.innerHTML = 'Salvando...';
+
+            const updatedProduct = {
+                name: document.getElementById('edit-prod-name').value,
+                description: document.getElementById('edit-prod-desc').value,
+                price: parseFloat(document.getElementById('edit-prod-price').value),
+                image: document.getElementById('edit-prod-image').value
+            };
+
+            try {
+                await updateDoc(doc(db, collections.products, productId), updatedProduct);
+                showToast('Produto atualizado!');
+                closeModal();
+                loadAdminData();
+            } catch (err) {
+                showToast('Erro ao atualizar produto.', 'error');
+                btn.disabled = false; btn.innerHTML = 'Salvar Alterações';
+            }
+        }
+
+        window.openCropper = function(inputId, previewId) {
+            const imageUrl = document.getElementById(inputId).value;
+            if (!imageUrl) {
+                showToast('Por favor, insira uma imagem primeiro.', 'error');
+                return;
+            }
+            
+            const html = `
+                <div class="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black bg-opacity-75 fade-in">
+                    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col">
+                        <div class="p-6 border-b flex justify-between items-center">
+                            <h3 class="font-bold text-gray-800 text-lg">
+                                <i class="fas fa-crop-alt text-brand-500 mr-2"></i>
+                                Recortar Imagem
+                            </h3>
+                            <button onclick="closeCropper()" class="text-gray-400 hover:text-gray-800 text-xl leading-none">&times;</button>
+                        </div>
+                        <div class="p-6">
+                            <div class="mb-4">
+                                <img id="cropper-image" src="${imageUrl}" class="w-full max-h-[400px] object-contain">
+                            </div>
+                            <div class="flex gap-3">
+                                <button onclick="closeCropper()" class="flex-1 py-3 rounded-xl bg-gray-100 text-gray-600 font-bold hover:bg-gray-200">Cancelar</button>
+                                <button onclick="applyCrop('${inputId}', '${previewId}')" class="flex-1 py-3 rounded-xl bg-brand-500 text-white font-bold hover:bg-brand-600 shadow-lg shadow-brand-500/30">Aplicar Corte</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            const modalContainer = document.getElementById('modal-container');
+            modalContainer.innerHTML = html;
+            
+            setTimeout(() => {
+                const image = document.getElementById('cropper-image');
+                if (typeof Cropper !== 'undefined') {
+                    window.cropperInstance = new Cropper(image, {
+                        aspectRatio: 16 / 9,
+                        viewMode: 1,
+                        autoCropArea: 0.8,
+                        responsive: true,
+                        background: false
+                    });
+                } else {
+                    showToast('Biblioteca de recorte não carregada.', 'error');
+                }
+            }, 100);
+        }
+
+        window.closeCropper = function() {
+            if (window.cropperInstance) {
+                window.cropperInstance.destroy();
+                window.cropperInstance = null;
+            }
+            // Reabrir o modal de edição do produto
+            const currentHash = window.location.hash;
+            handleRoute();
+        }
+
+        window.applyCrop = function(inputId, previewId) {
+            if (!window.cropperInstance) return;
+            
+            const canvas = window.cropperInstance.getCroppedCanvas({
+                width: 800,
+                height: 450,
+                imageSmoothingEnabled: true,
+                imageSmoothingQuality: 'high'
+            });
+            
+            const croppedDataUrl = canvas.toDataURL('image/jpeg', 0.9);
+            
+            // Atualizar o input e preview
+            const input = document.getElementById(inputId);
+            const preview = document.getElementById(previewId);
+            const previewContainer = preview.parentElement;
+            
+            input.value = croppedDataUrl;
+            preview.src = croppedDataUrl;
+            previewContainer.classList.remove('hidden');
+            
+            // Fechar o cropper
+            window.cropperInstance.destroy();
+            window.cropperInstance = null;
+            
+            // Reabrir o modal de edição
+            const currentHash = window.location.hash;
+            handleRoute();
+            
+            showToast('Imagem recortada com sucesso!');
         }
 
         window.deleteProduct = async function(id) {
@@ -833,14 +1218,17 @@
             }
 
             const t = state.publicTenant;
+            const coverImage = t.settings?.coverImage || '';
+            const profileImage = t.settings?.profileImage || '';
+            
             container.innerHTML = `
                 <div class="min-h-screen bg-gray-50 pb-24 text-sm fade-in">
                     <!-- Banner & Header -->
-                    <div class="h-48 bg-gradient-to-r from-gray-800 to-gray-900 relative">
+                    <div class="h-48 bg-gradient-to-r from-gray-800 to-gray-900 relative" style="${coverImage ? `background-image: url('${coverImage}'); background-size: cover; background-position: center;` : ''}">
                         <div class="absolute inset-0 bg-black/20"></div>
                         <div class="absolute -bottom-10 left-4 md:left-12 flex items-end gap-4">
-                            <div class="w-24 h-24 bg-white rounded-2xl shadow-lg border-4 border-white flex items-center justify-center text-3xl font-black text-brand-500 uppercase overflow-hidden">
-                                ${t.name.charAt(0)}
+                            <div class="w-24 h-24 bg-white rounded-2xl shadow-lg border-4 border-white flex items-center justify-center text-3xl font-black text-brand-500 uppercase overflow-hidden" style="${profileImage ? `background-image: url('${profileImage}'); background-size: cover; background-position: center;` : ''}">
+                                ${profileImage ? '' : t.name.charAt(0)}
                             </div>
                             <div class="mb-2">
                                 <h1 class="text-2xl font-black text-white drop-shadow-md">${t.name}</h1>
@@ -898,7 +1286,6 @@
             showToast(`${product.name} adicionado!`);
             updateCartTotal();
             
-            // Força re-render do menu para exibir o botão flutuante se foi o primeiro item
             if(state.cart.length === 1) handleRoute(); 
         }
 
