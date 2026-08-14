@@ -38,6 +38,13 @@
         .loader { border-radius: 50%; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         .overlay { background-color: rgba(0, 0, 0, 0.5); backdrop-filter: blur(4px); }
+        
+        /* Ajuste para altura das imagens no mobile */
+        @media (max-width: 768px) {
+            .product-image-mobile {
+                height: 250px !important; /* Aumentado de h-40 (160px) para 250px */
+            }
+        }
     </style>
 </head>
 <body class="text-gray-800 antialiased overflow-x-hidden">
@@ -846,7 +853,7 @@
                         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="public-products">
                             ${state.publicProducts.map(p => `
                                 <div class="bg-white rounded-2xl overflow-hidden shadow-sm border border-gray-100 group hover:shadow-md transition">
-                                    <div class="h-40 bg-gray-100 bg-cover bg-center" style="background-image: url('${p.image || 'https://placehold.co/400x300/eeeeee/999999?text=Sem+Foto'}')"></div>
+                                    <div class="product-image-mobile h-40 md:h-40 lg:h-40 bg-gray-100 bg-cover bg-center" style="background-image: url('${p.image || 'https://placehold.co/400x300/eeeeee/999999?text=Sem+Foto'}')"></div>
                                     <div class="p-4 flex flex-col h-full">
                                         <h3 class="font-bold text-gray-800 text-lg mb-1 leading-tight">${p.name}</h3>
                                         <p class="text-xs text-gray-500 mb-4 line-clamp-2">${p.description}</p>
