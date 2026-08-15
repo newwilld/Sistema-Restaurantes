@@ -519,7 +519,7 @@
             if (route === 'restaurantes') return renderSuperAdminRestaurants();
             
             const totalRestaurantes = state.superAdminTenants.length;
-            const mrr = totalRestaurantes * 99.90;
+            const mrr = state.superAdminTenants.reduce((sum, t) => sum + (t.status !== 'canceled' && t.status !== 'suspended' ? (t.planPrice !== undefined ? Number(t.planPrice) : 99.90) : 0), 0);
 
             return `
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
@@ -530,7 +530,7 @@
                     </div>
                     <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm relative overflow-hidden group">
                         <div class="absolute top-4 right-4 text-green-100 group-hover:text-green-200 transition text-5xl"><i class="fas fa-dollar-sign"></i></div>
-                        <p class="text-gray-500 font-bold mb-1 uppercase text-xs tracking-wider">MRR Potencial</p>
+                        <p class="text-gray-500 font-bold mb-1 uppercase text-xs tracking-wider">MRR Ativo (Planos)</p>
                         <h3 class="text-3xl font-black text-green-600">${mrr.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</h3>
                     </div>
                 </div>
@@ -539,65 +539,298 @@
 
         function renderSuperAdminRestaurants() {
             return `
-                <div class="flex justify-between items-center mb-6">
-                    <h3 class="font-bold text-gray-800 text-lg">Lista de Lojistas</h3>
-                    <button onclick="openCreateTenantModal()" class="bg-purple-600 text-white px-5 py-2 rounded-xl font-bold hover:bg-purple-700 shadow-lg shadow-purple-500/30 transition flex items-center gap-2">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+                    <div>
+                        <h3 class="font-bold text-gray-800 text-lg">Gestão de Lojistas & Assinaturas</h3>
+                        <p class="text-xs text-gray-500">Clique no nome do restaurante ou no botão para visualizar e editar os dados cadastrais, contato, plano e renovação.</p>
+                    </div>
+                    <button onclick="openCreateTenantModal()" class="bg-purple-600 text-white px-5 py-2.5 rounded-xl font-bold hover:bg-purple-700 shadow-lg shadow-purple-500/30 transition flex items-center gap-2">
                         <i class="fas fa-plus"></i> Novo Lojista
                     </button>
                 </div>
                 <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                    <table class="w-full text-left">
-                        <thead class="bg-gray-50 text-xs uppercase text-gray-500 font-bold border-b border-gray-100">
-                            <tr>
-                                <th class="p-4">Restaurante</th>
-                                <th class="p-4">Slug</th>
-                                <th class="p-4">Status</th>
-                                <th class="p-4">Data</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-gray-100 text-sm font-medium text-gray-700">
-                            ${state.superAdminTenants.map(t => `
-                                <tr class="hover:bg-gray-50">
-                                    <td class="p-4 font-bold text-gray-900">${t.name}</td>
-                                    <td class="p-4 text-purple-600 font-mono text-xs"><a href="#/cardapio/${t.slug}" target="_blank">/${t.slug} <i class="fas fa-external-link-alt ml-1"></i></a></td>
-                                    <td class="p-4"><span class="px-2 py-1 bg-green-100 text-green-700 rounded text-xs border border-green-200">Ativo</span></td>
-                                    <td class="p-4 text-gray-500">${t.createdAt ? new Date(t.createdAt.toDate()).toLocaleDateString() : 'N/A'}</td>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left">
+                            <thead class="bg-gray-50 text-xs uppercase text-gray-500 font-bold border-b border-gray-100">
+                                <tr>
+                                    <th class="p-4">Lojista / Restaurante</th>
+                                    <th class="p-4">Contato / WhatsApp</th>
+                                    <th class="p-4">Link Público</th>
+                                    <th class="p-4">Valor do Plano</th>
+                                    <th class="p-4">Renovação</th>
+                                    <th class="p-4">Status</th>
+                                    <th class="p-4 text-right">Ações</th>
                                 </tr>
-                            `).join('')}
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100 text-sm font-medium text-gray-700">
+                                ${state.superAdminTenants.map(t => {
+                                    const price = t.planPrice !== undefined ? Number(t.planPrice) : 99.90;
+                                    const renewal = t.renewalDate ? new Date(t.renewalDate + 'T00:00:00').toLocaleDateString('pt-BR') : 'A cada 30 dias';
+                                    const statusBadge = t.status === 'active' 
+                                        ? '<span class="px-2.5 py-1 bg-green-100 text-green-700 rounded-lg text-xs font-bold border border-green-200 uppercase">Ativo</span>'
+                                        : (t.status === 'pending' 
+                                            ? '<span class="px-2.5 py-1 bg-yellow-100 text-yellow-700 rounded-lg text-xs font-bold border border-yellow-200 uppercase">Pendente</span>'
+                                            : (t.status === 'suspended'
+                                                ? '<span class="px-2.5 py-1 bg-orange-100 text-orange-700 rounded-lg text-xs font-bold border border-orange-200 uppercase">Suspenso</span>'
+                                                : '<span class="px-2.5 py-1 bg-red-100 text-red-700 rounded-lg text-xs font-bold border border-red-200 uppercase">Cancelado</span>'));
+
+                                    return `
+                                        <tr class="hover:bg-gray-50/80 transition group">
+                                            <td class="p-4">
+                                                <div class="flex items-center gap-3 cursor-pointer" onclick="openTenantDetailsModal('${t.id}')">
+                                                    <div class="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 font-black flex items-center justify-center text-sm shadow-sm group-hover:bg-purple-600 group-hover:text-white transition shrink-0">
+                                                        ${(t.name || 'R').charAt(0).toUpperCase()}
+                                                    </div>
+                                                    <div>
+                                                        <div class="font-bold text-gray-900 group-hover:text-purple-600 transition flex items-center gap-1.5">
+                                                            <span>${t.name}</span>
+                                                            <i class="fas fa-edit text-[11px] text-gray-400 group-hover:text-purple-500"></i>
+                                                        </div>
+                                                        <span class="text-xs text-gray-400 font-mono">${t.email || 'Sem e-mail'}</span>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td class="p-4 font-mono text-xs text-gray-600">
+                                                ${t.phone ? `<span class="text-gray-800 font-bold"><i class="fab fa-whatsapp text-green-500 mr-1"></i>${t.phone}</span>` : '<span class="text-gray-400 italic">Não informado</span>'}
+                                            </td>
+                                            <td class="p-4 text-purple-600 font-mono text-xs">
+                                                <a href="#/cardapio/${t.slug}" target="_blank" class="hover:underline flex items-center gap-1 font-bold">
+                                                    /${t.slug} <i class="fas fa-external-link-alt text-[10px]"></i>
+                                                </a>
+                                            </td>
+                                            <td class="p-4 font-black text-green-600">
+                                                ${price.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}
+                                            </td>
+                                            <td class="p-4 text-xs font-medium text-gray-600">
+                                                <i class="fas fa-calendar-alt text-purple-400 mr-1"></i> ${renewal}
+                                            </td>
+                                            <td class="p-4">${statusBadge}</td>
+                                            <td class="p-4 text-right">
+                                                <button onclick="openTenantDetailsModal('${t.id}')" class="bg-gray-100 hover:bg-purple-600 hover:text-white text-gray-700 px-3.5 py-1.5 rounded-xl text-xs font-bold transition inline-flex items-center gap-1.5 shadow-sm">
+                                                    <i class="fas fa-edit"></i> Ver / Editar
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    `;
+                                }).join('')}
+                                ${state.superAdminTenants.length === 0 ? `<tr><td colspan="7" class="p-12 text-center text-gray-400 font-medium">Nenhum lojista cadastrado ainda.</td></tr>` : ''}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             `;
         }
 
-        window.openCreateTenantModal = function() {
+        window.openTenantDetailsModal = function(tenantId) {
+            const tenant = state.superAdminTenants.find(t => t.id === tenantId);
+            if (!tenant) return;
+
+            const planPrice = tenant.planPrice !== undefined ? tenant.planPrice : 99.90;
+            let renewalDateStr = '';
+            if (tenant.renewalDate) {
+                renewalDateStr = tenant.renewalDate;
+            } else {
+                const d = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+                renewalDateStr = d.toISOString().split('T')[0];
+            }
+
             const html = `
                 <div class="fixed inset-0 z-50 flex items-center justify-center p-4 overlay fade-in">
-                    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
+                    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
+                        <div class="p-6 border-b bg-purple-50 flex justify-between items-center">
+                            <div>
+                                <h3 class="font-bold text-purple-900 text-lg flex items-center gap-2">
+                                    <i class="fas fa-store text-purple-600"></i> Informações & Plano do Lojista
+                                </h3>
+                                <p class="text-xs text-purple-600/70 font-mono mt-0.5">ID: ${tenant.id}</p>
+                            </div>
+                            <button onclick="closeModal()" class="text-purple-400 hover:text-purple-800 text-2xl leading-none">&times;</button>
+                        </div>
+                        
+                        <div class="p-6 overflow-y-auto flex-grow space-y-5">
+                            <form id="tenant-edit-form" onsubmit="saveTenantEdits(event, '${tenant.id}')" class="space-y-4">
+                                <div class="bg-purple-50/50 p-4 rounded-2xl border border-purple-100">
+                                    <h4 class="font-black text-xs uppercase tracking-wider text-purple-900 mb-3 flex items-center gap-1.5">
+                                        <i class="fas fa-user-edit text-purple-600"></i> Dados Cadastrais do Cliente / Restaurante
+                                    </h4>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                        <div>
+                                            <label class="block text-xs font-bold text-gray-700 mb-1">Nome do Restaurante / Cliente</label>
+                                            <input type="text" id="edit-t-name" value="${tenant.name || ''}" required class="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl outline-none focus:border-purple-500 text-sm font-bold text-gray-800">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-bold text-gray-700 mb-1">Número / Contato / WhatsApp</label>
+                                            <input type="text" id="edit-t-phone" value="${tenant.phone || ''}" placeholder="Ex: (11) 99999-9999" class="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl outline-none focus:border-purple-500 text-sm font-medium">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-bold text-gray-700 mb-1">E-mail de Acesso</label>
+                                            <input type="email" id="edit-t-email" value="${tenant.email || ''}" required class="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl outline-none focus:border-purple-500 text-sm font-medium">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-bold text-gray-700 mb-1">Slug (Link do Cardápio)</label>
+                                            <div class="flex items-center bg-white border border-gray-300 rounded-xl overflow-hidden focus-within:border-purple-500">
+                                                <span class="pl-3 pr-1 text-xs text-gray-400 font-mono font-bold">wa.com/</span>
+                                                <input type="text" id="edit-t-slug" value="${tenant.slug || ''}" required class="w-full py-2.5 pr-3 bg-transparent outline-none text-sm font-mono font-bold text-purple-700" oninput="this.value = this.value.toLowerCase().replace(/[^a-z0-9-]/g, '');">
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="bg-gray-50 p-4 rounded-2xl border border-gray-200">
+                                    <h4 class="font-black text-xs uppercase tracking-wider text-gray-700 mb-3 flex items-center gap-1.5">
+                                        <i class="fas fa-file-invoice-dollar text-green-600"></i> Plano & Renovação da Assinatura
+                                    </h4>
+                                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                        <div>
+                                            <label class="block text-xs font-bold text-gray-700 mb-1">Valor do Plano (R$)</label>
+                                            <input type="number" step="0.01" id="edit-t-price" value="${planPrice}" required class="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl outline-none focus:border-purple-500 text-sm font-black text-green-600">
+                                            <p class="text-[10px] text-gray-400 mt-1">Padrão: R$ 99,90</p>
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-bold text-gray-700 mb-1">Data de Renovação</label>
+                                            <input type="date" id="edit-t-renewal" value="${renewalDateStr}" required class="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl outline-none focus:border-purple-500 text-sm font-bold text-gray-800">
+                                            <p class="text-[10px] text-gray-400 mt-1">Próximo vencimento</p>
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-bold text-gray-700 mb-1">Status da Conta</label>
+                                            <select id="edit-t-status" class="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl outline-none focus:border-purple-500 text-sm font-bold text-gray-800">
+                                                <option value="active" ${tenant.status === 'active' ? 'selected' : ''}>Ativo</option>
+                                                <option value="pending" ${tenant.status === 'pending' ? 'selected' : ''}>Pendente</option>
+                                                <option value="suspended" ${tenant.status === 'suspended' ? 'selected' : ''}>Suspenso</option>
+                                                <option value="canceled" ${tenant.status === 'canceled' ? 'selected' : ''}>Cancelado</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="mt-6 flex gap-3 pt-2">
+                                    <button type="button" onclick="closeModal()" class="flex-1 py-3 rounded-xl bg-gray-100 text-gray-600 font-bold hover:bg-gray-200 transition text-sm">Cancelar</button>
+                                    <button type="submit" id="btn-save-tenant-edits" class="flex-1 py-3 rounded-xl bg-purple-600 text-white font-bold hover:bg-purple-700 transition shadow-lg shadow-purple-600/30 text-sm flex items-center justify-center gap-1.5">
+                                        <i class="fas fa-save"></i> Salvar Alterações
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            `;
+            openModal(html);
+        };
+
+        window.saveTenantEdits = async function(e, tenantId) {
+            e.preventDefault();
+            const btn = document.getElementById('btn-save-tenant-edits');
+            btn.disabled = true;
+            btn.innerHTML = '<div class="loader w-4 h-4 border-2 border-white border-t-transparent mx-auto"></div>';
+
+            const name = document.getElementById('edit-t-name').value.trim();
+            const phone = document.getElementById('edit-t-phone').value.trim();
+            const email = document.getElementById('edit-t-email').value.trim();
+            const slug = document.getElementById('edit-t-slug').value.trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
+            const planPrice = parseFloat(document.getElementById('edit-t-price').value) || 99.90;
+            const renewalDate = document.getElementById('edit-t-renewal').value;
+            const status = document.getElementById('edit-t-status').value;
+
+            if (!name || !slug || !email) {
+                showToast("Por favor, preencha todos os campos obrigatórios.", "error");
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-save"></i> Salvar Alterações';
+                return;
+            }
+
+            try {
+                // Verificar se o slug foi alterado e já existe
+                const oldTenant = state.superAdminTenants.find(t => t.id === tenantId);
+                if (oldTenant && oldTenant.slug !== slug) {
+                    const q = query(collection(db, collections.tenants), where("slug", "==", slug));
+                    const snap = await getDocs(q);
+                    if (!snap.empty && snap.docs.some(d => d.id !== tenantId)) {
+                        showToast("Este slug já está sendo utilizado por outro restaurante.", "error");
+                        btn.disabled = false;
+                        btn.innerHTML = '<i class="fas fa-save"></i> Salvar Alterações';
+                        return;
+                    }
+                }
+
+                const tenantRef = doc(db, collections.tenants, tenantId);
+                const updatedPayload = {
+                    name,
+                    phone,
+                    email,
+                    slug,
+                    planPrice,
+                    renewalDate,
+                    status,
+                    lastModified: Date.now()
+                };
+
+                await setDoc(tenantRef, updatedPayload, { merge: true });
+
+                const index = state.superAdminTenants.findIndex(t => t.id === tenantId);
+                if (index !== -1) {
+                    state.superAdminTenants[index] = { ...state.superAdminTenants[index], ...updatedPayload };
+                }
+
+                showToast("Dados do lojista atualizados com sucesso!");
+                closeModal();
+                loadSuperAdminData();
+            } catch (err) {
+                console.error("Erro ao salvar dados do lojista:", err);
+                showToast("Erro ao salvar: " + err.message, "error");
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-save"></i> Salvar Alterações';
+            }
+        };
+
+        window.openCreateTenantModal = function() {
+            const d = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+            const defaultRenewal = d.toISOString().split('T')[0];
+
+            const html = `
+                <div class="fixed inset-0 z-50 flex items-center justify-center p-4 overlay fade-in">
+                    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
                         <div class="p-6 border-b bg-purple-50 flex justify-between items-center">
                             <h3 class="font-bold text-purple-900 flex items-center gap-2"><i class="fas fa-user-plus"></i> Criar Conta de Lojista</h3>
                             <button onclick="closeModal()" class="text-purple-400 hover:text-purple-800 text-xl leading-none">&times;</button>
                         </div>
-                        <div class="p-6">
+                        <div class="p-6 overflow-y-auto flex-grow">
                             <form id="admin-create-tenant-form" class="space-y-4" onsubmit="submitAdminCreateTenant(event)">
-                                <div>
-                                    <label class="block text-xs font-bold text-gray-700 mb-1">Nome</label>
-                                    <input type="text" id="new-t-name" required class="w-full px-4 py-2.5 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:border-purple-500">
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-bold text-gray-700 mb-1">Slug (Link)</label>
-                                    <div class="flex border border-gray-300 rounded-xl overflow-hidden focus-within:border-purple-500">
-                                        <span class="px-3 py-2.5 bg-gray-100 text-gray-500 text-sm border-r">wa.com/</span>
-                                        <input type="text" id="new-t-slug" required class="flex-1 px-3 py-2.5 bg-gray-50 outline-none text-sm font-mono">
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    <div>
+                                        <label class="block text-xs font-bold text-gray-700 mb-1">Nome do Restaurante</label>
+                                        <input type="text" id="new-t-name" required placeholder="Ex: Hamburgueria do Chefe" class="w-full px-4 py-2.5 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:border-purple-500 text-sm">
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-bold text-gray-700 mb-1">Contato / WhatsApp</label>
+                                        <input type="text" id="new-t-phone" placeholder="Ex: (11) 99999-9999" class="w-full px-4 py-2.5 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:border-purple-500 text-sm">
                                     </div>
                                 </div>
                                 <div>
-                                    <label class="block text-xs font-bold text-gray-700 mb-1">E-mail</label>
-                                    <input type="email" id="new-t-email" required class="w-full px-4 py-2.5 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:border-purple-500">
+                                    <label class="block text-xs font-bold text-gray-700 mb-1">Slug (Link do Cardápio)</label>
+                                    <div class="flex border border-gray-300 rounded-xl overflow-hidden focus-within:border-purple-500">
+                                        <span class="px-3 py-2.5 bg-gray-100 text-gray-500 text-sm border-r select-none">wa.com/</span>
+                                        <input type="text" id="new-t-slug" required placeholder="hamburgueria-chefe" class="flex-1 px-3 py-2.5 bg-gray-50 outline-none text-sm font-mono" oninput="this.value = this.value.toLowerCase().replace(/[^a-z0-9-]/g, '');">
+                                    </div>
                                 </div>
-                                <div>
-                                    <label class="block text-xs font-bold text-gray-700 mb-1">Senha Temporária</label>
-                                    <input type="password" id="new-t-pass" required minlength="6" class="w-full px-4 py-2.5 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:border-purple-500">
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    <div>
+                                        <label class="block text-xs font-bold text-gray-700 mb-1">E-mail de Login</label>
+                                        <input type="email" id="new-t-email" required placeholder="contato@restaurante.com" class="w-full px-4 py-2.5 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:border-purple-500 text-sm">
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-bold text-gray-700 mb-1">Senha Temporária</label>
+                                        <input type="password" id="new-t-pass" required minlength="6" placeholder="Mínimo 6 dígitos" class="w-full px-4 py-2.5 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:border-purple-500 text-sm">
+                                    </div>
+                                </div>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 bg-purple-50/50 p-3.5 rounded-2xl border border-purple-100">
+                                    <div>
+                                        <label class="block text-xs font-bold text-gray-700 mb-1">Valor do Plano (R$)</label>
+                                        <input type="number" step="0.01" id="new-t-price" value="99.90" required class="w-full px-3.5 py-2 bg-white border border-gray-300 rounded-xl outline-none focus:border-purple-500 text-sm font-bold text-green-600">
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-bold text-gray-700 mb-1">Data de Renovação</label>
+                                        <input type="date" id="new-t-renewal" value="${defaultRenewal}" required class="w-full px-3.5 py-2 bg-white border border-gray-300 rounded-xl outline-none focus:border-purple-500 text-sm font-bold text-gray-800">
+                                    </div>
                                 </div>
                                 <div class="mt-6 flex gap-3">
                                     <button type="button" onclick="closeModal()" class="flex-1 py-3 rounded-xl bg-gray-100 text-gray-600 font-bold hover:bg-gray-200">Cancelar</button>
@@ -617,10 +850,13 @@
             btn.innerHTML = '<div class="loader w-4 h-4 border-2 border-white border-t-transparent mx-auto"></div>';
             btn.disabled = true;
 
-            const name = document.getElementById('new-t-name').value;
-            const slug = document.getElementById('new-t-slug').value.toLowerCase();
-            const email = document.getElementById('new-t-email').value;
+            const name = document.getElementById('new-t-name').value.trim();
+            const phone = document.getElementById('new-t-phone').value.trim();
+            const slug = document.getElementById('new-t-slug').value.trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
+            const email = document.getElementById('new-t-email').value.trim();
             const pass = document.getElementById('new-t-pass').value;
+            const planPrice = parseFloat(document.getElementById('new-t-price').value) || 99.90;
+            const renewalDate = document.getElementById('new-t-renewal').value;
 
             try {
                 const { createUserWithEmailAndPassword: createUserSecondary, updateProfile: updateProfileSecondary, signOut: signOutSecondary } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js");
@@ -630,10 +866,13 @@
                 
                 await setDoc(doc(db, collections.tenants, userCreds.user.uid), {
                     name: name,
+                    phone: phone,
                     slug: slug,
                     email: email,
+                    planPrice: planPrice,
+                    renewalDate: renewalDate,
                     status: 'active',
-                    plan: 'trial',
+                    plan: 'pro',
                     createdAt: serverTimestamp(),
                     settings: { 
                         open: true, 
