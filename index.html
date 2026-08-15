@@ -742,14 +742,29 @@
             const osnap = await getDocs(oq);
             state.adminOrders = osnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (b.createdAt || 0) - (a.createdAt || 0));
 
+            let notifsFromCollection = [];
             try {
                 const nq = query(collection(db, collections.notifications), where("tenantId", "==", state.currentTenant.id));
                 const nsnap = await getDocs(nq);
-                state.adminNotifications = nsnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (b.createdAt || 0) - (a.createdAt || 0));
+                notifsFromCollection = nsnap.docs.map(d => ({ id: d.id, ...d.data() }));
             } catch (err) {
-                console.error("Erro ao carregar notificações:", err);
-                state.adminNotifications = [];
+                console.warn("Aviso: Notificações serão sincronizadas com o histórico dos pedidos.", err);
             }
+
+            // Unir notificações da coleção com o histórico interno dos pedidos sem duplicatas
+            const notifsMap = new Map();
+            notifsFromCollection.forEach(n => notifsMap.set(n.id || (n.orderId + '_' + n.createdAt), n));
+            state.adminOrders.forEach(o => {
+                (o.history || []).forEach(h => {
+                    notifsMap.set(h.id || (o.id + '_' + h.createdAt), {
+                        ...h,
+                        tenantId: o.tenantId,
+                        orderId: o.id
+                    });
+                });
+            });
+
+            state.adminNotifications = Array.from(notifsMap.values()).sort((a,b) => (b.createdAt || 0) - (a.createdAt || 0));
 
             const contentDiv = document.getElementById('admin-content');
             if (contentDiv) {
@@ -915,36 +930,41 @@
         }
 
         window.markAllNotificationsAsRead = async function() {
+            state.adminNotifications.forEach(n => n.read = true);
+            showToast('Todas as notificações foram marcadas como lidas.');
             try {
                 const batch = writeBatch(db);
                 state.adminNotifications.forEach(n => {
-                    if (!n.read) {
-                        n.read = true;
-                        batch.update(doc(db, collections.notifications, n.id), { read: true });
+                    if (n.id) {
+                        try {
+                            batch.update(doc(db, collections.notifications, n.id), { read: true });
+                        } catch(e){}
                     }
                 });
                 await batch.commit();
-                showToast('Todas as notificações foram marcadas como lidas.');
-                loadAdminData();
             } catch (err) {
-                console.error(err);
+                console.warn(err);
             }
+            loadAdminData();
         };
 
         window.clearAllNotifications = async function() {
             if (!confirm("Deseja realmente limpar todo o histórico de notificações?")) return;
+            state.adminNotifications = [];
+            showToast('Histórico de notificações limpo.');
             try {
                 const batch = writeBatch(db);
-                state.adminNotifications.forEach(n => {
-                    batch.delete(doc(db, collections.notifications, n.id));
+                state.adminOrders.forEach(o => {
+                    if (o.history && o.history.length > 0) {
+                        batch.update(doc(db, collections.orders, o.id), { history: [] });
+                        o.history = [];
+                    }
                 });
                 await batch.commit();
-                state.adminNotifications = [];
-                showToast('Histórico de notificações limpo.');
-                loadAdminData();
             } catch (err) {
-                showToast('Erro ao limpar histórico.', 'error');
+                console.warn(err);
             }
+            loadAdminData();
         };
 
         function renderAdminMenuBuilder() {
@@ -1596,7 +1616,12 @@
             btn.innerHTML = '<div class="loader w-4 h-4 border-2 border-white border-t-transparent mx-auto"></div>';
 
             const oldOrder = state.adminOrders.find(o => o.id === orderId);
-            if (!oldOrder) return;
+            if (!oldOrder) {
+                showToast("Pedido não encontrado.", "error");
+                btn.disabled = false;
+                btn.innerHTML = 'Salvar Alterações';
+                return;
+            }
 
             const newName = document.getElementById('modal-order-name').value.trim();
             const newPhone = document.getElementById('modal-order-phone').value.trim();
@@ -1640,45 +1665,54 @@
 
             const author = state.currentUser?.displayName || state.currentTenant?.name || (state.currentUser?.email ? state.currentUser.email.split('@')[0] : 'Administrador');
 
-            try {
-                // 1. Atualizar Pedido no Firestore
-                const orderRef = doc(db, collections.orders, orderId);
-                await updateDoc(orderRef, {
-                    'customer.name': newName,
-                    'customer.phone': newPhone,
-                    'customer.address': newAddress,
-                    'observations': newObs,
-                    'status': newStatus,
-                    'total': newTotal,
-                    'lastModified': Date.now(),
-                    'lastModifiedBy': author
-                });
+            const newHistoryItem = {
+                id: generateId(),
+                orderId: orderId,
+                author: author,
+                customerName: oldName || newName || 'Cliente',
+                changes: changes,
+                createdAt: Date.now(),
+                read: false
+            };
 
-                // 2. Criar Registro de Notificação / Auditoria
-                const notifRef = doc(collection(db, collections.notifications));
-                const notifData = {
-                    tenantId: state.currentTenant.id,
-                    orderId: orderId,
-                    author: author,
-                    customerName: oldName || newName || 'Cliente',
-                    changes: changes,
-                    createdAt: Date.now(),
-                    read: false
-                };
-                await setDoc(notifRef, notifData);
+            const updatedOrderPayload = {
+                ...oldOrder,
+                customer: {
+                    ...(oldOrder.customer || {}),
+                    name: newName,
+                    phone: newPhone,
+                    address: newAddress
+                },
+                observations: newObs,
+                status: newStatus,
+                total: newTotal,
+                lastModified: Date.now(),
+                lastModifiedBy: author,
+                history: [newHistoryItem, ...(oldOrder.history || [])]
+            };
+
+            try {
+                // 1. Atualizar Pedido no Firestore com setDoc e merge
+                const orderRef = doc(db, collections.orders, orderId);
+                await setDoc(orderRef, updatedOrderPayload, { merge: true });
+
+                // 2. Tentar criar Registro em saas_notifications (com fallback tolerante)
+                try {
+                    const notifRef = doc(collection(db, collections.notifications));
+                    await setDoc(notifRef, {
+                        tenantId: state.currentTenant?.id || oldOrder.tenantId,
+                        ...newHistoryItem
+                    });
+                } catch (notifErr) {
+                    console.warn("Aviso: Notificação registrada no histórico do pedido.", notifErr);
+                }
 
                 // 3. Atualizar estado local
                 const orderIndex = state.adminOrders.findIndex(o => o.id === orderId);
                 if (orderIndex !== -1) {
-                    state.adminOrders[orderIndex] = {
-                        ...state.adminOrders[orderIndex],
-                        customer: { ...state.adminOrders[orderIndex].customer, name: newName, phone: newPhone, address: newAddress },
-                        observations: newObs,
-                        status: newStatus,
-                        total: newTotal
-                    };
+                    state.adminOrders[orderIndex] = updatedOrderPayload;
                 }
-                state.adminNotifications.unshift({ id: notifRef.id, ...notifData });
+                state.adminNotifications.unshift(newHistoryItem);
 
                 showToast(`Alterações salvas e registradas em Notificações!`);
                 closeModal();
@@ -1730,9 +1764,9 @@
                             <div class="w-24 h-24 bg-white rounded-2xl shadow-lg border-4 border-white flex items-center justify-center text-3xl font-black text-brand-500 uppercase overflow-hidden" style="${profileImage ? `background-image: url('${profileImage}'); background-size: cover; background-position: center;` : ''}">
                                 ${profileImage ? '' : t.name.charAt(0)}
                             </div>
-                            <div class="mb-2">
-                                <h1 class="text-2xl font-black text-white drop-shadow-md">${t.name}</h1>
-                                <span class="px-2 py-0.5 bg-green-500 text-white rounded text-xs font-bold shadow uppercase tracking-wider">Aberto</span>
+                            <div class="mb-4">
+                                <h1 class="text-2xl font-black text-white drop-shadow-md leading-tight mb-1">${t.name}</h1>
+                                <span class="px-2.5 py-0.5 bg-green-500 text-white rounded text-xs font-bold shadow uppercase tracking-wider inline-block">Aberto</span>
                             </div>
                         </div>
                     </div>
