@@ -10,6 +10,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
     
     <script>
         tailwind.config = {
@@ -44,7 +45,7 @@
         /* Ajuste para altura das imagens no mobile */
         @media (max-width: 768px) {
             .product-image-mobile {
-                height: 250px !important;
+                height: 130px !important;
             }
         }
         
@@ -66,6 +67,27 @@
         .cropper-face {
             border-radius: 8px;
         }
+
+        /* Estilos Drag and Drop para reordenar cardápio */
+        .sortable-ghost {
+            opacity: 0.35 !important;
+            transform: scale(0.97);
+            border: 2px dashed #ef4444 !important;
+            background-color: #fef2f2 !important;
+        }
+        .sortable-chosen {
+            box-shadow: 0 12px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+        }
+        .sortable-drag {
+            cursor: grabbing !important;
+            opacity: 0.95;
+            transform: rotate(1deg);
+        }
+        .drag-handle {
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+        }
     </style>
 </head>
 <body class="text-gray-800 antialiased overflow-x-hidden">
@@ -82,7 +104,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, getDoc, setDoc, collection, getDocs, updateDoc, deleteDoc, onSnapshot, query, where, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, doc, getDoc, setDoc, collection, getDocs, updateDoc, deleteDoc, onSnapshot, query, where, serverTimestamp, writeBatch } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyCZyMVAn_F3me72l8N1PqKTfgnb0cQpUKA",
@@ -105,7 +127,8 @@
         const collections = {
             tenants: "saas_tenants",
             products: "saas_products",
-            orders: "saas_orders"
+            orders: "saas_orders",
+            notifications: "saas_notifications"
         };
 
         const state = {
@@ -120,6 +143,7 @@
             
             adminProducts: [],
             adminOrders: [],
+            adminNotifications: [],
 
             superAdminTenants: [],
             superAdminOrders: [],
@@ -632,24 +656,116 @@
             }
         }
 
+        let sortableInstance = null;
+        window.initAdminSortable = function() {
+            const container = document.getElementById('admin-products-list');
+            if (!container) return;
+            
+            if (typeof Sortable === 'undefined') {
+                setTimeout(initAdminSortable, 150);
+                return;
+            }
+
+            if (sortableInstance) {
+                try {
+                    sortableInstance.destroy();
+                } catch(e) {}
+                sortableInstance = null;
+            }
+
+            const cards = container.querySelectorAll('.admin-product-card');
+            if (cards.length <= 1) return;
+
+            sortableInstance = new Sortable(container, {
+                animation: 200,
+                handle: '.drag-handle',
+                ghostClass: 'sortable-ghost',
+                chosenClass: 'sortable-chosen',
+                dragClass: 'sortable-drag',
+                forceFallback: false,
+                touchStartThreshold: 3,
+                onEnd: async function(evt) {
+                    if (evt.oldIndex === evt.newIndex) return;
+
+                    const itemEls = container.querySelectorAll('.admin-product-card');
+                    const newOrderedIds = Array.from(itemEls).map(el => el.getAttribute('data-id'));
+                    
+                    // Atualiza imediatamente os crachás de posição visual na interface
+                    itemEls.forEach((el, idx) => {
+                        const badge = el.querySelector('.product-order-badge');
+                        if (badge) badge.innerText = `#${idx + 1}`;
+                    });
+
+                    await saveProductsOrder(newOrderedIds);
+                }
+            });
+        };
+
+        window.saveProductsOrder = async function(newOrderedIds) {
+            try {
+                const batch = writeBatch(db);
+                newOrderedIds.forEach((id, index) => {
+                    const productRef = doc(db, collections.products, id);
+                    batch.update(productRef, { order: index });
+                    
+                    const p = state.adminProducts.find(item => item.id === id);
+                    if (p) p.order = index;
+                });
+                
+                await batch.commit();
+                state.adminProducts.sort((a, b) => {
+                    const orderA = a.order !== undefined ? a.order : 999999;
+                    const orderB = b.order !== undefined ? b.order : 999999;
+                    if (orderA !== orderB) return orderA - orderB;
+                    return (a.createdAt || 0) - (b.createdAt || 0);
+                });
+                showToast('Ordem do cardápio salva com sucesso!');
+            } catch (error) {
+                console.error("Erro ao salvar ordem dos produtos:", error);
+                showToast('Erro ao salvar nova ordem do cardápio.', 'error');
+            }
+        };
+
         async function loadAdminData() {
             if (!state.currentTenant) return;
             const q = query(collection(db, collections.products), where("tenantId", "==", state.currentTenant.id));
             const snap = await getDocs(q);
-            state.adminProducts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            state.adminProducts = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+                .sort((a, b) => {
+                    const orderA = a.order !== undefined ? a.order : 999999;
+                    const orderB = b.order !== undefined ? b.order : 999999;
+                    if (orderA !== orderB) return orderA - orderB;
+                    return (a.createdAt || 0) - (b.createdAt || 0);
+                });
             
             const oq = query(collection(db, collections.orders), where("tenantId", "==", state.currentTenant.id));
             const osnap = await getDocs(oq);
-            state.adminOrders = osnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => b.createdAt - a.createdAt);
+            state.adminOrders = osnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+            try {
+                const nq = query(collection(db, collections.notifications), where("tenantId", "==", state.currentTenant.id));
+                const nsnap = await getDocs(nq);
+                state.adminNotifications = nsnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (b.createdAt || 0) - (a.createdAt || 0));
+            } catch (err) {
+                console.error("Erro ao carregar notificações:", err);
+                state.adminNotifications = [];
+            }
 
             const contentDiv = document.getElementById('admin-content');
-            if (contentDiv) contentDiv.innerHTML = getAdminContent(window.location.hash.split('/')[2] || 'dashboard');
+            if (contentDiv) {
+                const subRoute = window.location.hash.split('/')[2] || 'dashboard';
+                contentDiv.innerHTML = getAdminContent(subRoute);
+                if (subRoute === 'cardapio') {
+                    initAdminSortable();
+                }
+            }
         }
 
         window.renderAdmin = function(container, hash) {
             loadAdminData();
             const subRoute = hash.split('/')[2] || 'dashboard';
             const tenant = state.currentTenant;
+            const unreadCount = state.adminNotifications.filter(n => !n.read).length;
 
             container.innerHTML = `
                 <div class="flex h-screen bg-gray-50 fade-in text-sm">
@@ -659,9 +775,15 @@
                             <div class="mt-2 text-xs text-gray-400 font-mono truncate"><a href="#/cardapio/${tenant?.slug}" target="_blank" class="hover:text-white">wa.com/${tenant?.slug}</a></div>
                         </div>
                         <nav class="flex-grow px-4 space-y-1 mt-4">
-                            <a href="#/admin/dashboard" class="flex items-center gap-3 px-4 py-3 rounded-xl transition ${subRoute === 'dashboard' ? 'bg-brand-600 font-bold' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-chart-pie w-5"></i> Visão Geral</a>
-                            <a href="#/admin/pedidos" class="flex items-center gap-3 px-4 py-3 rounded-xl transition ${subRoute === 'pedidos' ? 'bg-brand-600 font-bold' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-receipt w-5"></i> Pedidos</a>
-                            <a href="#/admin/cardapio" class="flex items-center gap-3 px-4 py-3 rounded-xl transition ${subRoute === 'cardapio' ? 'bg-brand-600 font-bold' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-utensils w-5"></i> Meu Cardápio</a>
+                            <a href="#/admin/notificacoes" class="flex items-center justify-between px-4 py-3 rounded-xl transition ${subRoute === 'notificacoes' ? 'bg-brand-600 font-bold text-white shadow-lg shadow-brand-600/30' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}">
+                                <div class="flex items-center gap-3">
+                                    <i class="fas fa-bell w-5"></i> Notificações
+                                </div>
+                                ${unreadCount > 0 ? `<span class="bg-red-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full animate-pulse">${unreadCount}</span>` : ''}
+                            </a>
+                            <a href="#/admin/dashboard" class="flex items-center gap-3 px-4 py-3 rounded-xl transition ${subRoute === 'dashboard' ? 'bg-brand-600 font-bold text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-chart-pie w-5"></i> Visão Geral</a>
+                            <a href="#/admin/pedidos" class="flex items-center gap-3 px-4 py-3 rounded-xl transition ${subRoute === 'pedidos' ? 'bg-brand-600 font-bold text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-receipt w-5"></i> Pedidos</a>
+                            <a href="#/admin/cardapio" class="flex items-center gap-3 px-4 py-3 rounded-xl transition ${subRoute === 'cardapio' ? 'bg-brand-600 font-bold text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-utensils w-5"></i> Meu Cardápio</a>
                         </nav>
                         <div class="p-4 border-t border-gray-800">
                             <button onclick="doLogout()" class="w-full flex items-center gap-3 px-4 py-3 text-red-400 hover:bg-red-500/10 rounded-xl font-bold transition"><i class="fas fa-power-off w-5"></i> Sair do Painel</button>
@@ -669,9 +791,16 @@
                     </aside>
                     <main class="flex-grow flex flex-col overflow-hidden">
                         <header class="h-16 bg-white border-b px-8 flex items-center justify-between shrink-0 shadow-sm z-10">
-                            <h2 class="text-lg font-bold text-gray-800 capitalize"><i class="fas fa-circle text-[10px] text-green-500 mr-2"></i> ${subRoute}</h2>
-                            <div class="flex items-center gap-4">
-                                <a href="#/cardapio/${tenant?.slug}" target="_blank" class="text-sm font-bold text-brand-600 bg-brand-50 px-4 py-1.5 rounded-full hover:bg-brand-100 transition"><i class="fas fa-external-link-alt mr-1"></i> Ver Loja</a>
+                            <h2 class="text-lg font-bold text-gray-800 capitalize flex items-center gap-2">
+                                <i class="fas ${subRoute === 'notificacoes' ? 'fa-bell text-brand-500' : (subRoute === 'pedidos' ? 'fa-receipt text-blue-500' : (subRoute === 'cardapio' ? 'fa-utensils text-brand-500' : 'fa-chart-pie text-green-500'))}"></i> 
+                                ${subRoute === 'notificacoes' ? 'Notificações & Histórico' : (subRoute === 'pedidos' ? 'Gestão de Pedidos' : (subRoute === 'cardapio' ? 'Meu Cardápio' : 'Visão Geral'))}
+                            </h2>
+                            <div class="flex items-center gap-3">
+                                <a href="#/admin/notificacoes" class="relative p-2 text-gray-400 hover:text-brand-500 rounded-xl hover:bg-gray-50 transition" title="Notificações">
+                                    <i class="fas fa-bell text-lg"></i>
+                                    ${unreadCount > 0 ? `<span class="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full ring-2 ring-white"></span>` : ''}
+                                </a>
+                                <a href="#/cardapio/${tenant?.slug}" target="_blank" class="text-sm font-bold text-brand-600 bg-brand-50 px-4 py-1.5 rounded-full hover:bg-brand-100 transition flex items-center gap-1.5"><i class="fas fa-external-link-alt text-xs"></i> Ver Loja</a>
                             </div>
                         </header>
                         <div class="flex-grow p-4 md:p-8 overflow-y-auto" id="admin-content">
@@ -680,9 +809,18 @@
                     </main>
                 </div>
             `;
+
+            if (subRoute === 'cardapio' && state.adminProducts.length > 0) {
+                const contentDiv = document.getElementById('admin-content');
+                if (contentDiv) {
+                    contentDiv.innerHTML = getAdminContent('cardapio');
+                    initAdminSortable();
+                }
+            }
         }
 
         function getAdminContent(route) {
+            if (route === 'notificacoes') return renderAdminNotifications();
             if (route === 'cardapio') return renderAdminMenuBuilder();
             if (route === 'pedidos') return renderAdminOrders();
             
@@ -704,6 +842,110 @@
                 </div>
             `;
         }
+
+        function renderAdminNotifications() {
+            const unreadCount = state.adminNotifications.filter(n => !n.read).length;
+            return `
+                <div class="mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <div>
+                        <h3 class="font-bold text-gray-800 text-lg">Histórico de Alterações e Notificações</h3>
+                        <p class="text-xs text-gray-500">Registro detalhado de todas as alterações feitas nos pedidos e dados de clientes.</p>
+                    </div>
+                    ${state.adminNotifications.length > 0 ? `
+                        <div class="flex gap-2">
+                            ${unreadCount > 0 ? `
+                                <button onclick="markAllNotificationsAsRead()" class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5">
+                                    <i class="fas fa-check-double text-brand-500"></i> Marcar todas como lidas
+                                </button>
+                            ` : ''}
+                            <button onclick="clearAllNotifications()" class="bg-red-50 hover:bg-red-100 text-red-600 px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5">
+                                <i class="fas fa-trash-alt"></i> Limpar Histórico
+                            </button>
+                        </div>
+                    ` : ''}
+                </div>
+
+                <div class="space-y-4">
+                    ${state.adminNotifications.map(n => `
+                        <div class="bg-white rounded-2xl p-5 border ${n.read ? 'border-gray-100' : 'border-brand-200 bg-gradient-to-r from-red-50/25 via-white to-white shadow-sm'} flex flex-col md:flex-row md:items-start justify-between gap-4 transition">
+                            <div class="flex items-start gap-3.5 flex-grow">
+                                <div class="w-11 h-11 rounded-2xl ${n.read ? 'bg-gray-100 text-gray-500' : 'bg-brand-50 text-brand-600'} flex items-center justify-center text-lg shrink-0 mt-0.5">
+                                    <i class="fas fa-user-edit"></i>
+                                </div>
+                                <div class="flex-grow min-w-0">
+                                    <div class="flex flex-wrap items-center gap-1.5 mb-1.5">
+                                        <span class="font-black text-gray-900 text-sm">${n.author || 'Administrador'}</span>
+                                        <span class="text-xs text-gray-400 font-medium">alterou informações de</span>
+                                        <span class="font-bold text-brand-600 bg-brand-50 px-2 py-0.5 rounded text-xs">@${n.customerName || 'Cliente'}</span>
+                                        ${n.orderId ? `<span class="text-xs font-mono text-gray-400 font-semibold">#${n.orderId.substring(0, 6)}</span>` : ''}
+                                        ${!n.read ? `<span class="bg-brand-500 text-white text-[9px] font-black uppercase px-1.5 py-0.5 rounded-full">Novo</span>` : ''}
+                                    </div>
+
+                                    <div class="space-y-1.5 mt-2.5">
+                                        ${(n.changes || []).map(c => `
+                                            <div class="text-xs bg-gray-50 p-2.5 rounded-xl border border-gray-100 flex flex-wrap items-center gap-2">
+                                                <span class="font-bold text-gray-800 min-w-[120px]"><i class="fas fa-pen-alt text-brand-500 mr-1 text-[10px]"></i> ${c.field}:</span>
+                                                <div class="flex items-center gap-2 flex-wrap">
+                                                    <span class="text-red-600 bg-red-50 border border-red-100 px-2 py-0.5 rounded line-through text-[11px]">${c.before}</span>
+                                                    <i class="fas fa-arrow-right text-[10px] text-gray-400"></i>
+                                                    <span class="text-green-700 bg-green-50 border border-green-200 font-bold px-2 py-0.5 rounded text-[11px]">${c.after}</span>
+                                                </div>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+
+                                    <div class="text-[11px] text-gray-400 mt-2.5 flex items-center gap-2 font-medium">
+                                        <i class="fas fa-clock text-gray-300"></i>
+                                        <span>${n.createdAt ? new Date(n.createdAt).toLocaleString('pt-BR') : 'Data não disponível'}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-2 shrink-0 self-end md:self-center">
+                                ${n.orderId ? `
+                                    <button onclick="openOrderDetailsModal('${n.orderId}')" class="bg-gray-100 hover:bg-brand-50 hover:text-brand-600 text-gray-700 font-bold px-4 py-2 rounded-xl text-xs transition flex items-center gap-1.5">
+                                        <i class="fas fa-eye text-xs"></i> Ver Pedido
+                                    </button>
+                                ` : ''}
+                            </div>
+                        </div>
+                    `).join('')}
+                    ${state.adminNotifications.length === 0 ? `<div class="p-12 text-center text-gray-400 font-medium border-2 border-dashed border-gray-200 rounded-2xl">Nenhuma notificação ou histórico de alteração registrado ainda.</div>` : ''}
+                </div>
+            `;
+        }
+
+        window.markAllNotificationsAsRead = async function() {
+            try {
+                const batch = writeBatch(db);
+                state.adminNotifications.forEach(n => {
+                    if (!n.read) {
+                        n.read = true;
+                        batch.update(doc(db, collections.notifications, n.id), { read: true });
+                    }
+                });
+                await batch.commit();
+                showToast('Todas as notificações foram marcadas como lidas.');
+                loadAdminData();
+            } catch (err) {
+                console.error(err);
+            }
+        };
+
+        window.clearAllNotifications = async function() {
+            if (!confirm("Deseja realmente limpar todo o histórico de notificações?")) return;
+            try {
+                const batch = writeBatch(db);
+                state.adminNotifications.forEach(n => {
+                    batch.delete(doc(db, collections.notifications, n.id));
+                });
+                await batch.commit();
+                state.adminNotifications = [];
+                showToast('Histórico de notificações limpo.');
+                loadAdminData();
+            } catch (err) {
+                showToast('Erro ao limpar histórico.', 'error');
+            }
+        };
 
         function renderAdminMenuBuilder() {
             return `
@@ -735,21 +977,34 @@
                     </div>
                 </div>
                 
-                <div class="flex justify-between items-center mb-6">
-                    <h3 class="font-bold text-gray-800 text-lg">Produtos Cadastrados</h3>
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+                    <div>
+                        <h3 class="font-bold text-gray-800 text-lg">Produtos Cadastrados</h3>
+                        <p class="text-xs text-gray-500 flex items-center gap-1.5 mt-0.5">
+                            <i class="fas fa-arrows-alt text-brand-500"></i>
+                            <span>Clique, segure e arraste os itens pela alça <i class="fas fa-grip-vertical text-gray-400"></i> para definir a ordem no cardápio.</span>
+                        </p>
+                    </div>
                     <button onclick="openProductModal()" class="bg-brand-500 hover:bg-brand-600 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg shadow-brand-500/30 transition flex items-center gap-2">
                         <i class="fas fa-plus"></i> Novo Produto
                     </button>
                 </div>
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    ${state.adminProducts.map(p => `
-                        <div class="bg-white rounded-2xl p-4 border border-gray-100 shadow-sm flex items-start gap-4 cursor-pointer hover:shadow-md transition" onclick="openProductEditor('${p.id}')">
-                            <div class="w-20 h-20 bg-gray-100 rounded-xl flex-shrink-0 bg-cover bg-center" style="background-image: url('${p.image || 'https://placehold.co/100x100/eeeeee/999999?text=Sem+Foto'}')"></div>
-                            <div class="flex-grow">
-                                <h4 class="font-bold text-gray-800 leading-tight mb-1">${p.name}</h4>
+                <div id="admin-products-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    ${state.adminProducts.map((p, index) => `
+                        <div data-id="${p.id}" class="admin-product-card bg-white rounded-2xl p-4 border border-gray-100 shadow-sm flex items-start gap-3 hover:shadow-md transition relative group select-none">
+                            <div class="drag-handle p-2.5 text-gray-400 hover:text-brand-500 active:text-brand-600 cursor-grab active:cursor-grabbing flex items-center justify-center rounded-xl hover:bg-gray-100 active:bg-brand-50 transition self-stretch shrink-0" title="Arrastar para reordenar">
+                                <i class="fas fa-grip-vertical text-lg"></i>
+                            </div>
+                            <div class="w-20 h-20 bg-gray-100 rounded-xl flex-shrink-0 bg-cover bg-center cursor-pointer" style="background-image: url('${p.image || 'https://placehold.co/100x100/eeeeee/999999?text=Sem+Foto'}')" onclick="openProductEditor('${p.id}')"></div>
+                            <div class="flex-grow min-w-0">
+                                <div class="flex items-center justify-between gap-1 mb-1">
+                                    <h4 class="font-bold text-gray-800 leading-tight truncate cursor-pointer hover:text-brand-600 transition" onclick="openProductEditor('${p.id}')">${p.name}</h4>
+                                    <span class="product-order-badge text-[10px] font-bold text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">#${index + 1}</span>
+                                </div>
                                 <p class="text-brand-600 font-black text-sm mb-2">${p.price.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</p>
                                 <div class="flex gap-2">
-                                    <button onclick="event.stopPropagation(); deleteProduct('${p.id}')" class="text-red-500 hover:bg-red-50 px-2 py-1 rounded text-xs font-bold transition">Excluir</button>
+                                    <button onclick="openProductEditor('${p.id}')" class="text-gray-600 hover:bg-gray-100 px-2 py-1 rounded text-xs font-bold transition">Editar</button>
+                                    <button onclick="deleteProduct('${p.id}')" class="text-red-500 hover:bg-red-50 px-2 py-1 rounded text-xs font-bold transition">Excluir</button>
                                 </div>
                             </div>
                         </div>
@@ -942,6 +1197,7 @@
                 price: parseFloat(document.getElementById('prod-price').value),
                 image: document.getElementById('prod-image').value,
                 active: true,
+                order: state.adminProducts.length,
                 createdAt: Date.now()
             };
 
@@ -1166,36 +1422,274 @@
         }
 
         function renderAdminOrders() {
+            const getStatusBadge = (status) => {
+                switch(status) {
+                    case 'novo': return `<span class="px-2.5 py-1 bg-blue-100 text-blue-700 rounded-lg text-xs font-bold border border-blue-200 uppercase">Novo</span>`;
+                    case 'preparando': return `<span class="px-2.5 py-1 bg-yellow-100 text-yellow-700 rounded-lg text-xs font-bold border border-yellow-200 uppercase">Preparando</span>`;
+                    case 'entrega': return `<span class="px-2.5 py-1 bg-purple-100 text-purple-700 rounded-lg text-xs font-bold border border-purple-200 uppercase">Em Entrega</span>`;
+                    case 'entregue': return `<span class="px-2.5 py-1 bg-green-100 text-green-700 rounded-lg text-xs font-bold border border-green-200 uppercase">Entregue</span>`;
+                    case 'cancelado': return `<span class="px-2.5 py-1 bg-red-100 text-red-700 rounded-lg text-xs font-bold border border-red-200 uppercase">Cancelado</span>`;
+                    default: return `<span class="px-2.5 py-1 bg-gray-100 text-gray-700 rounded-lg text-xs font-bold border border-gray-200 uppercase">${status || 'Novo'}</span>`;
+                }
+            };
+
             return `
-                <h3 class="font-bold text-gray-800 text-lg mb-6">Histórico de Pedidos</h3>
+                <div class="flex justify-between items-center mb-6">
+                    <div>
+                        <h3 class="font-bold text-gray-800 text-lg">Histórico e Gestão de Pedidos</h3>
+                        <p class="text-xs text-gray-500">Clique no nome do cliente ou no botão para abrir os detalhes e editar as informações do pedido.</p>
+                    </div>
+                </div>
                 <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                    <table class="w-full text-left">
-                        <thead class="bg-gray-50 text-xs uppercase text-gray-500 font-bold border-b border-gray-100">
-                            <tr>
-                                <th class="p-4">Cliente</th>
-                                <th class="p-4">Itens</th>
-                                <th class="p-4">Total</th>
-                                <th class="p-4">Status</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-gray-100 text-sm">
-                            ${state.adminOrders.map(o => `
-                                <tr class="hover:bg-gray-50">
-                                    <td class="p-4 font-bold text-gray-800">
-                                        ${o.customer.name}<br>
-                                        <span class="text-xs text-gray-400 font-normal">${o.customer.phone}</span>
-                                    </td>
-                                    <td class="p-4 text-gray-600">${o.items.length} itens</td>
-                                    <td class="p-4 font-black text-brand-600">${o.total.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</td>
-                                    <td class="p-4"><span class="px-2 py-1 bg-yellow-100 text-yellow-700 rounded text-xs font-bold border border-yellow-200 uppercase">${o.status}</span></td>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left">
+                            <thead class="bg-gray-50 text-xs uppercase text-gray-500 font-bold border-b border-gray-100">
+                                <tr>
+                                    <th class="p-4">Cliente</th>
+                                    <th class="p-4">Endereço de Entrega</th>
+                                    <th class="p-4">Itens & Obs</th>
+                                    <th class="p-4">Total</th>
+                                    <th class="p-4">Status</th>
+                                    <th class="p-4 text-right">Ações</th>
                                 </tr>
-                            `).join('')}
-                            ${state.adminOrders.length === 0 ? `<tr><td colspan="4" class="p-8 text-center text-gray-400">Nenhum pedido recebido.</td></tr>` : ''}
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100 text-sm">
+                                ${state.adminOrders.map(o => `
+                                    <tr class="hover:bg-gray-50/80 transition group">
+                                        <td class="p-4">
+                                            <div class="flex items-center gap-3 cursor-pointer" onclick="openOrderDetailsModal('${o.id}')">
+                                                <div class="w-10 h-10 rounded-xl bg-brand-50 text-brand-600 font-black flex items-center justify-center text-sm shadow-sm group-hover:bg-brand-500 group-hover:text-white transition shrink-0">
+                                                    ${(o.customer?.name || 'C').charAt(0).toUpperCase()}
+                                                </div>
+                                                <div>
+                                                    <div class="font-bold text-gray-900 group-hover:text-brand-600 transition flex items-center gap-1.5">
+                                                        <span>${o.customer?.name || 'Sem Nome'}</span>
+                                                        <i class="fas fa-edit text-[11px] text-gray-400 group-hover:text-brand-500"></i>
+                                                    </div>
+                                                    <span class="text-xs text-gray-400 font-mono">${o.customer?.phone || 'Sem telefone'}</span>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td class="p-4 text-xs text-gray-600 max-w-[200px]">
+                                            <div class="truncate font-medium">${o.customer?.address || '<span class="text-gray-400 italic">Não informado</span>'}</div>
+                                        </td>
+                                        <td class="p-4">
+                                            <div class="text-xs font-semibold text-gray-800">${o.items.length} item(ns)</div>
+                                            ${o.observations ? `<div class="text-[11px] text-amber-600 italic truncate max-w-[180px]" title="${o.observations}"><i class="fas fa-comment-alt mr-1"></i>${o.observations}</div>` : ''}
+                                        </td>
+                                        <td class="p-4 font-black text-brand-600">${(o.total || 0).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</td>
+                                        <td class="p-4">${getStatusBadge(o.status)}</td>
+                                        <td class="p-4 text-right">
+                                            <button onclick="openOrderDetailsModal('${o.id}')" class="bg-gray-100 hover:bg-brand-500 hover:text-white text-gray-700 px-3.5 py-1.5 rounded-xl text-xs font-bold transition inline-flex items-center gap-1.5 shadow-sm">
+                                                <i class="fas fa-edit"></i> Ver / Editar
+                                            </button>
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                                ${state.adminOrders.length === 0 ? `<tr><td colspan="6" class="p-12 text-center text-gray-400 font-medium">Nenhum pedido recebido ainda.</td></tr>` : ''}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             `;
         }
+
+        window.openOrderDetailsModal = function(orderId) {
+            const order = state.adminOrders.find(o => o.id === orderId);
+            if (!order) return;
+
+            const html = `
+                <div class="fixed inset-0 z-50 flex items-center justify-center p-4 overlay fade-in">
+                    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
+                        <div class="p-6 border-b flex justify-between items-center bg-gray-50">
+                            <div>
+                                <h3 class="font-bold text-gray-800 text-lg flex items-center gap-2">
+                                    <i class="fas fa-receipt text-brand-500"></i> Detalhes & Edição do Pedido
+                                </h3>
+                                <p class="text-xs text-gray-400 font-mono mt-0.5">ID: #${order.id} | Realizado em: ${new Date(order.createdAt || Date.now()).toLocaleString('pt-BR')}</p>
+                            </div>
+                            <button onclick="closeModal()" class="text-gray-400 hover:text-gray-800 text-2xl leading-none">&times;</button>
+                        </div>
+                        
+                        <div class="p-6 overflow-y-auto flex-grow space-y-5">
+                            <form id="order-edit-form" onsubmit="saveOrderEdits(event, '${order.id}')" class="space-y-4">
+                                <div class="bg-brand-50/50 p-4 rounded-2xl border border-brand-100">
+                                    <h4 class="font-black text-xs uppercase tracking-wider text-brand-900 mb-3 flex items-center gap-1.5">
+                                        <i class="fas fa-user text-brand-500"></i> Informações do Cliente (Editáveis)
+                                    </h4>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                        <div>
+                                            <label class="block text-xs font-bold text-gray-700 mb-1">Nome do Cliente</label>
+                                            <input type="text" id="modal-order-name" value="${order.customer?.name || ''}" required class="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl outline-none focus:border-brand-500 text-sm font-medium">
+                                        </div>
+                                        <div>
+                                            <label class="block text-xs font-bold text-gray-700 mb-1">Telefone / WhatsApp</label>
+                                            <input type="text" id="modal-order-phone" value="${order.customer?.phone || ''}" required class="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl outline-none focus:border-brand-500 text-sm font-medium">
+                                        </div>
+                                        <div class="md:col-span-2">
+                                            <label class="block text-xs font-bold text-gray-700 mb-1">Endereço de Entrega</label>
+                                            <input type="text" id="modal-order-address" value="${order.customer?.address || ''}" placeholder="Rua, Número, Bairro, Compl." class="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl outline-none focus:border-brand-500 text-sm font-medium">
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="bg-gray-50 p-4 rounded-2xl border border-gray-200">
+                                    <h4 class="font-black text-xs uppercase tracking-wider text-gray-700 mb-3 flex items-center gap-1.5">
+                                        <i class="fas fa-hamburger text-gray-500"></i> Itens Pedidos & Informações
+                                    </h4>
+                                    <div class="space-y-2 mb-3">
+                                        ${order.items.map((item) => `
+                                            <div class="bg-white p-3 rounded-xl border border-gray-200 flex justify-between items-center text-xs">
+                                                <div class="flex items-center gap-2">
+                                                    <span class="font-black text-brand-600 bg-brand-50 px-2 py-0.5 rounded">${item.quantity}x</span>
+                                                    <span class="font-bold text-gray-800">${item.name}</span>
+                                                    ${item.obs ? `<span class="text-amber-600 italic">(${item.obs})</span>` : ''}
+                                                </div>
+                                                <div class="font-bold text-gray-700">${((item.price || 0) * (item.quantity || 1)).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</div>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+
+                                    <div>
+                                        <label class="block text-xs font-bold text-gray-700 mb-1 flex items-center gap-1">
+                                            <i class="fas fa-comment-alt text-amber-500"></i> Observações do Pedido pelo Cliente (obs)
+                                        </label>
+                                        <textarea id="modal-order-obs" rows="2" placeholder="Nenhuma observação informada pelo cliente." class="w-full px-3.5 py-2 bg-white border border-gray-300 rounded-xl outline-none focus:border-brand-500 text-xs font-medium resize-none">${order.observations || ''}</textarea>
+                                    </div>
+                                </div>
+
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    <div>
+                                        <label class="block text-xs font-bold text-gray-700 mb-1">Status do Pedido</label>
+                                        <select id="modal-order-status" class="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:border-brand-500 text-sm font-bold">
+                                            <option value="novo" ${order.status === 'novo' ? 'selected' : ''}>Novo</option>
+                                            <option value="preparando" ${order.status === 'preparando' ? 'selected' : ''}>Preparando</option>
+                                            <option value="entrega" ${order.status === 'entrega' ? 'selected' : ''}>Saiu para Entrega</option>
+                                            <option value="entregue" ${order.status === 'entregue' ? 'selected' : ''}>Entregue / Concluído</option>
+                                            <option value="cancelado" ${order.status === 'cancelado' ? 'selected' : ''}>Cancelado</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-bold text-gray-700 mb-1">Valor Total (R$)</label>
+                                        <input type="number" step="0.01" id="modal-order-total" value="${order.total || 0}" required class="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:border-brand-500 text-sm font-black text-brand-600">
+                                    </div>
+                                </div>
+
+                                <div class="mt-6 flex gap-3 pt-2">
+                                    <button type="button" onclick="closeModal()" class="flex-1 py-3 rounded-xl bg-gray-100 text-gray-600 font-bold hover:bg-gray-200 transition text-sm">Cancelar</button>
+                                    <button type="submit" id="btn-save-order-edits" class="flex-1 py-3 rounded-xl bg-brand-500 text-white font-bold hover:bg-brand-600 transition shadow-lg shadow-brand-500/30 text-sm flex items-center justify-center gap-1.5">
+                                        <i class="fas fa-save"></i> Salvar Alterações
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            `;
+            openModal(html);
+        };
+
+        window.saveOrderEdits = async function(e, orderId) {
+            e.preventDefault();
+            const btn = document.getElementById('btn-save-order-edits');
+            btn.disabled = true;
+            btn.innerHTML = '<div class="loader w-4 h-4 border-2 border-white border-t-transparent mx-auto"></div>';
+
+            const oldOrder = state.adminOrders.find(o => o.id === orderId);
+            if (!oldOrder) return;
+
+            const newName = document.getElementById('modal-order-name').value.trim();
+            const newPhone = document.getElementById('modal-order-phone').value.trim();
+            const newAddress = document.getElementById('modal-order-address').value.trim();
+            const newObs = document.getElementById('modal-order-obs').value.trim();
+            const newStatus = document.getElementById('modal-order-status').value;
+            const newTotal = parseFloat(document.getElementById('modal-order-total').value) || 0;
+
+            const changes = [];
+            const oldName = oldOrder.customer?.name || '';
+            const oldPhone = oldOrder.customer?.phone || '';
+            const oldAddress = oldOrder.customer?.address || '';
+            const oldObs = oldOrder.observations || '';
+            const oldStatus = oldOrder.status || 'novo';
+            const oldTotal = oldOrder.total || 0;
+
+            if (newName !== oldName) {
+                changes.push({ field: "Nome do Cliente", before: oldName || '(Vazio)', after: newName || '(Vazio)' });
+            }
+            if (newPhone !== oldPhone) {
+                changes.push({ field: "Telefone do Cliente", before: oldPhone || '(Vazio)', after: newPhone || '(Vazio)' });
+            }
+            if (newAddress !== oldAddress) {
+                changes.push({ field: "Endereço de Entrega", before: oldAddress || '(Vazio)', after: newAddress || '(Vazio)' });
+            }
+            if (newObs !== oldObs) {
+                changes.push({ field: "Observações do Pedido (obs)", before: oldObs || '(Nenhuma)', after: newObs || '(Nenhuma)' });
+            }
+            if (newStatus !== oldStatus) {
+                changes.push({ field: "Status do Pedido", before: oldStatus, after: newStatus });
+            }
+            if (Math.abs(newTotal - oldTotal) > 0.001) {
+                changes.push({ field: "Valor Total", before: oldTotal.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'}), after: newTotal.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'}) });
+            }
+
+            if (changes.length === 0) {
+                showToast("Nenhuma alteração foi realizada.");
+                closeModal();
+                return;
+            }
+
+            const author = state.currentUser?.displayName || state.currentTenant?.name || (state.currentUser?.email ? state.currentUser.email.split('@')[0] : 'Administrador');
+
+            try {
+                // 1. Atualizar Pedido no Firestore
+                const orderRef = doc(db, collections.orders, orderId);
+                await updateDoc(orderRef, {
+                    'customer.name': newName,
+                    'customer.phone': newPhone,
+                    'customer.address': newAddress,
+                    'observations': newObs,
+                    'status': newStatus,
+                    'total': newTotal,
+                    'lastModified': Date.now(),
+                    'lastModifiedBy': author
+                });
+
+                // 2. Criar Registro de Notificação / Auditoria
+                const notifRef = doc(collection(db, collections.notifications));
+                const notifData = {
+                    tenantId: state.currentTenant.id,
+                    orderId: orderId,
+                    author: author,
+                    customerName: oldName || newName || 'Cliente',
+                    changes: changes,
+                    createdAt: Date.now(),
+                    read: false
+                };
+                await setDoc(notifRef, notifData);
+
+                // 3. Atualizar estado local
+                const orderIndex = state.adminOrders.findIndex(o => o.id === orderId);
+                if (orderIndex !== -1) {
+                    state.adminOrders[orderIndex] = {
+                        ...state.adminOrders[orderIndex],
+                        customer: { ...state.adminOrders[orderIndex].customer, name: newName, phone: newPhone, address: newAddress },
+                        observations: newObs,
+                        status: newStatus,
+                        total: newTotal
+                    };
+                }
+                state.adminNotifications.unshift({ id: notifRef.id, ...notifData });
+
+                showToast(`Alterações salvas e registradas em Notificações!`);
+                closeModal();
+                loadAdminData();
+            } catch (err) {
+                console.error("Erro ao salvar alterações do pedido:", err);
+                showToast("Erro ao salvar alterações: " + err.message, "error");
+                btn.disabled = false;
+                btn.innerHTML = 'Salvar Alterações';
+            }
+        };
 
         async function loadPublicMenuData(slug) {
             const q = query(collection(db, collections.tenants), where("slug", "==", slug));
@@ -1208,7 +1702,13 @@
 
             const pq = query(collection(db, collections.products), where("tenantId", "==", state.publicTenant.id));
             const psnap = await getDocs(pq);
-            state.publicProducts = psnap.docs.map(d => ({ id: d.id, ...d.data() }));
+            state.publicProducts = psnap.docs.map(d => ({ id: d.id, ...d.data() }))
+                .sort((a, b) => {
+                    const orderA = a.order !== undefined ? a.order : 999999;
+                    const orderB = b.order !== undefined ? b.order : 999999;
+                    if (orderA !== orderB) return orderA - orderB;
+                    return (a.createdAt || 0) - (b.createdAt || 0);
+                });
         }
 
         window.renderPublicMenu = function(container) {
@@ -1237,20 +1737,25 @@
                         </div>
                     </div>
 
-                    <div class="pt-16 px-4 md:px-12 max-w-5xl mx-auto">
-                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="public-products">
+                    <div class="pt-16 px-3 sm:px-6 md:px-12 max-w-5xl mx-auto">
+                        <div class="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4 md:gap-6" id="public-products">
                             ${state.publicProducts.map(p => `
-                                <div class="bg-white rounded-2xl overflow-hidden shadow-sm border border-gray-100 group hover:shadow-md transition">
-                                    <div class="product-image-mobile h-40 md:h-40 lg:h-40 bg-gray-100 bg-cover bg-center" style="background-image: url('${p.image || 'https://placehold.co/400x300/eeeeee/999999?text=Sem+Foto'}')"></div>
-                                    <div class="p-4 flex flex-col h-full">
-                                        <h3 class="font-bold text-gray-800 text-lg mb-1 leading-tight">${p.name}</h3>
-                                        <p class="text-xs text-gray-500 mb-4 line-clamp-2">${p.description}</p>
-                                        <div class="mt-auto flex justify-between items-center">
-                                            <span class="font-black text-brand-600 text-lg">${p.price.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</span>
-                                            <button onclick="addToCart('${p.id}')" class="bg-brand-50 text-brand-600 hover:bg-brand-500 hover:text-white w-10 h-10 rounded-xl flex items-center justify-center font-bold transition">
-                                                <i class="fas fa-plus"></i>
-                                            </button>
+                                <div class="bg-white rounded-2xl overflow-hidden shadow-sm border border-gray-100 group hover:shadow-md transition flex flex-col justify-between">
+                                    <div>
+                                        <div class="product-image-mobile h-32 sm:h-40 md:h-44 bg-gray-100 bg-cover bg-center" style="background-image: url('${p.image || 'https://placehold.co/400x300/eeeeee/999999?text=Sem+Foto'}')"></div>
+                                        <div class="p-3 sm:p-4">
+                                            <h3 class="font-bold text-gray-800 text-sm sm:text-base md:text-lg mb-1 leading-tight line-clamp-2">${p.name}</h3>
+                                            <p class="text-xs text-gray-500 mb-2 line-clamp-2 leading-relaxed">${p.description || ''}</p>
+                                            <div class="font-black text-brand-600 text-sm sm:text-base md:text-lg mb-1">
+                                                ${p.price.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}
+                                            </div>
                                         </div>
+                                    </div>
+                                    <div class="p-3 sm:p-4 pt-0">
+                                        <button onclick="addToCart('${p.id}')" class="w-full bg-brand-50 hover:bg-brand-500 text-brand-600 hover:text-white py-2 sm:py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 font-bold text-xs sm:text-sm transition shadow-sm">
+                                            <i class="fas fa-plus text-xs"></i>
+                                            <span>Adicionar</span>
+                                        </button>
                                     </div>
                                 </div>
                             `).join('')}
@@ -1325,15 +1830,29 @@
                         </div>
 
                         ${state.cart.length > 0 ? `
-                        <div class="p-6 border-t bg-gray-50">
-                            <div class="flex justify-between items-center mb-6 text-lg">
+                        <div class="p-6 border-t bg-gray-50 overflow-y-auto max-h-[50vh]">
+                            <div class="flex justify-between items-center mb-4 text-lg">
                                 <span class="font-bold text-gray-600">Total</span>
                                 <span class="font-black text-gray-900">${total.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</span>
                             </div>
                             <form onsubmit="checkout(event)" class="space-y-3">
-                                <input type="text" id="c-name" required placeholder="Seu Nome" class="w-full px-4 py-3 bg-white border border-gray-300 rounded-xl outline-none focus:border-brand-500 text-sm">
-                                <input type="text" id="c-phone" required placeholder="Seu WhatsApp" class="w-full px-4 py-3 bg-white border border-gray-300 rounded-xl outline-none focus:border-brand-500 text-sm">
-                                <button type="submit" id="btn-checkout" class="w-full py-4 bg-brand-500 text-white font-black rounded-xl hover:bg-brand-600 shadow-lg shadow-brand-500/30 transition text-lg mt-2">
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-700 mb-1">Seu Nome</label>
+                                    <input type="text" id="c-name" required placeholder="Ex: João da Silva" class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-xl outline-none focus:border-brand-500 text-sm">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-700 mb-1">WhatsApp / Telefone</label>
+                                    <input type="text" id="c-phone" required placeholder="Ex: (11) 99999-9999" class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-xl outline-none focus:border-brand-500 text-sm">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-700 mb-1">Endereço de Entrega</label>
+                                    <input type="text" id="c-address" required placeholder="Rua, Número, Bairro, Compl. / Apto" class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-xl outline-none focus:border-brand-500 text-sm">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-700 mb-1">Observações do Pedido (obs)</label>
+                                    <textarea id="c-obs" rows="2" placeholder="Ex: Sem cebola, ponto da carne bem passado, troco para 50, etc." class="w-full px-4 py-2 bg-white border border-gray-300 rounded-xl outline-none focus:border-brand-500 text-sm resize-none"></textarea>
+                                </div>
+                                <button type="submit" id="btn-checkout" class="w-full py-3.5 bg-brand-500 text-white font-black rounded-xl hover:bg-brand-600 shadow-lg shadow-brand-500/30 transition text-base mt-2 flex justify-center items-center">
                                     Finalizar Pedido
                                 </button>
                             </form>
@@ -1351,16 +1870,28 @@
             if(state.cart.length === 0) return;
             
             const btn = document.getElementById('btn-checkout');
-            btn.disabled = true; btn.innerHTML = 'Processando...';
+            btn.disabled = true; btn.innerHTML = '<div class="loader w-5 h-5 border-2 border-white border-t-transparent mx-auto"></div>';
 
             const name = document.getElementById('c-name').value;
             const phone = document.getElementById('c-phone').value;
+            const address = document.getElementById('c-address').value;
+            const observations = document.getElementById('c-obs').value;
             const total = state.cart.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
 
             const order = {
                 tenantId: state.publicTenant.id,
-                customer: { name, phone },
-                items: state.cart.map(i => ({ productId: i.product.id, name: i.product.name, price: i.product.price, quantity: i.quantity })),
+                customer: { 
+                    name: name.trim(), 
+                    phone: phone.trim(),
+                    address: address.trim()
+                },
+                observations: observations.trim(),
+                items: state.cart.map(i => ({ 
+                    productId: i.product.id, 
+                    name: i.product.name, 
+                    price: i.product.price, 
+                    quantity: i.quantity 
+                })),
                 total: total,
                 status: 'novo',
                 createdAt: Date.now()
@@ -1382,7 +1913,7 @@
                     </div>
                 `);
             } catch(err) {
-                showToast("Erro ao processar pedido.", "error");
+                showToast("Erro ao processar pedido: " + err.message, "error");
                 btn.disabled = false; btn.innerHTML = 'Finalizar Pedido';
             }
         }
