@@ -971,10 +971,21 @@
             return `
                 <div class="mb-6">
                     <h3 class="font-bold text-gray-800 text-lg mb-4">Configurações do Cardápio</h3>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                        <button onclick="openImageEditor('profile')" class="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition text-left">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+                        <button onclick="openRestaurantNameEditor()" class="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition text-left group">
                             <div class="flex items-center gap-3">
-                                <div class="w-12 h-12 bg-brand-50 rounded-xl flex items-center justify-center text-brand-500">
+                                <div class="w-12 h-12 bg-amber-50 group-hover:bg-amber-100 rounded-xl flex items-center justify-center text-amber-600 transition">
+                                    <i class="fas fa-store text-xl"></i>
+                                </div>
+                                <div class="min-w-0">
+                                    <p class="font-bold text-gray-800 truncate">Editar Nome</p>
+                                    <p class="text-xs text-gray-500 truncate">${state.currentTenant?.name || 'Nome do restaurante'}</p>
+                                </div>
+                            </div>
+                        </button>
+                        <button onclick="openImageEditor('profile')" class="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition text-left group">
+                            <div class="flex items-center gap-3">
+                                <div class="w-12 h-12 bg-brand-50 group-hover:bg-brand-100 rounded-xl flex items-center justify-center text-brand-500 transition">
                                     <i class="fas fa-user-circle text-xl"></i>
                                 </div>
                                 <div>
@@ -983,9 +994,9 @@
                                 </div>
                             </div>
                         </button>
-                        <button onclick="openImageEditor('cover')" class="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition text-left">
+                        <button onclick="openImageEditor('cover')" class="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition text-left group">
                             <div class="flex items-center gap-3">
-                                <div class="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center text-blue-500">
+                                <div class="w-12 h-12 bg-blue-50 group-hover:bg-blue-100 rounded-xl flex items-center justify-center text-blue-500 transition">
                                     <i class="fas fa-image text-xl"></i>
                                 </div>
                                 <div>
@@ -1033,6 +1044,68 @@
                 </div>
             `;
         }
+
+        window.openRestaurantNameEditor = function() {
+            const currentName = state.currentTenant?.name || '';
+            const html = `
+                <div class="fixed inset-0 z-50 flex items-center justify-center p-4 overlay fade-in">
+                    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
+                        <div class="p-6 border-b flex justify-between items-center bg-gray-50">
+                            <h3 class="font-bold text-gray-800 text-lg flex items-center gap-2">
+                                <i class="fas fa-store text-amber-500"></i> Editar Nome do Restaurante
+                            </h3>
+                            <button onclick="closeModal()" class="text-gray-400 hover:text-gray-800 text-xl leading-none">&times;</button>
+                        </div>
+                        <div class="p-6">
+                            <form onsubmit="saveRestaurantName(event)" class="space-y-4">
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-700 mb-1">Nome do Restaurante (Visível no Cardápio)</label>
+                                    <input type="text" id="tenant-name-input" required value="${currentName}" placeholder="Ex: Hamburgueria do Chefe" class="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:border-brand-500 text-sm font-bold text-gray-800">
+                                    <p class="text-[11px] text-gray-400 mt-1.5">Este é o nome principal exibido acima do status "Aberto" para todos os seus clientes.</p>
+                                </div>
+                                <div class="flex gap-3 pt-2">
+                                    <button type="button" onclick="closeModal()" class="flex-1 py-3 rounded-xl bg-gray-100 text-gray-600 font-bold hover:bg-gray-200 transition text-sm">Cancelar</button>
+                                    <button type="submit" id="btn-save-tenant-name" class="flex-1 py-3 rounded-xl bg-brand-500 text-white font-bold hover:bg-brand-600 transition shadow-lg shadow-brand-500/30 text-sm flex items-center justify-center gap-1.5">
+                                        <i class="fas fa-save"></i> Salvar Nome
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            `;
+            openModal(html);
+        };
+
+        window.saveRestaurantName = async function(e) {
+            e.preventDefault();
+            const btn = document.getElementById('btn-save-tenant-name');
+            const nameInput = document.getElementById('tenant-name-input');
+            const newName = nameInput.value.trim();
+
+            if (!newName) {
+                showToast("Por favor, digite um nome válido.", "error");
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerHTML = '<div class="loader w-4 h-4 border-2 border-white border-t-transparent mx-auto"></div>';
+
+            try {
+                const tenantRef = doc(db, collections.tenants, state.currentTenant.id);
+                await setDoc(tenantRef, { name: newName }, { merge: true });
+                state.currentTenant.name = newName;
+
+                showToast("Nome do restaurante atualizado com sucesso!");
+                closeModal();
+                handleRoute();
+            } catch (err) {
+                console.error("Erro ao salvar nome do restaurante:", err);
+                showToast("Erro ao salvar: " + err.message, "error");
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-save"></i> Salvar Nome';
+            }
+        };
 
         window.openImageEditor = function(type) {
             const isProfile = type === 'profile';
