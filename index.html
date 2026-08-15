@@ -971,10 +971,10 @@
             return `
                 <div class="mb-6">
                     <h3 class="font-bold text-gray-800 text-lg mb-4">Configurações do Cardápio</h3>
-                    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                         <button onclick="openRestaurantNameEditor()" class="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition text-left group">
                             <div class="flex items-center gap-3">
-                                <div class="w-12 h-12 bg-amber-50 group-hover:bg-amber-100 rounded-xl flex items-center justify-center text-amber-600 transition">
+                                <div class="w-12 h-12 bg-amber-50 group-hover:bg-amber-100 rounded-xl flex items-center justify-center text-amber-600 transition shrink-0">
                                     <i class="fas fa-store text-xl"></i>
                                 </div>
                                 <div class="min-w-0">
@@ -983,25 +983,36 @@
                                 </div>
                             </div>
                         </button>
+                        <button onclick="openSlugEditor()" class="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition text-left group">
+                            <div class="flex items-center gap-3">
+                                <div class="w-12 h-12 bg-indigo-50 group-hover:bg-indigo-100 rounded-xl flex items-center justify-center text-indigo-600 transition shrink-0">
+                                    <i class="fas fa-link text-xl"></i>
+                                </div>
+                                <div class="min-w-0">
+                                    <p class="font-bold text-gray-800 truncate">Link do Cardápio</p>
+                                    <p class="text-xs text-indigo-600 font-mono font-bold truncate">/${state.currentTenant?.slug || 'link'}</p>
+                                </div>
+                            </div>
+                        </button>
                         <button onclick="openImageEditor('profile')" class="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition text-left group">
                             <div class="flex items-center gap-3">
-                                <div class="w-12 h-12 bg-brand-50 group-hover:bg-brand-100 rounded-xl flex items-center justify-center text-brand-500 transition">
+                                <div class="w-12 h-12 bg-brand-50 group-hover:bg-brand-100 rounded-xl flex items-center justify-center text-brand-500 transition shrink-0">
                                     <i class="fas fa-user-circle text-xl"></i>
                                 </div>
-                                <div>
-                                    <p class="font-bold text-gray-800">Editar Foto do Perfil</p>
-                                    <p class="text-xs text-gray-500">Logo do restaurante</p>
+                                <div class="min-w-0">
+                                    <p class="font-bold text-gray-800 truncate">Foto do Perfil</p>
+                                    <p class="text-xs text-gray-500 truncate">Logo do restaurante</p>
                                 </div>
                             </div>
                         </button>
                         <button onclick="openImageEditor('cover')" class="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition text-left group">
                             <div class="flex items-center gap-3">
-                                <div class="w-12 h-12 bg-blue-50 group-hover:bg-blue-100 rounded-xl flex items-center justify-center text-blue-500 transition">
+                                <div class="w-12 h-12 bg-blue-50 group-hover:bg-blue-100 rounded-xl flex items-center justify-center text-blue-500 transition shrink-0">
                                     <i class="fas fa-image text-xl"></i>
                                 </div>
-                                <div>
-                                    <p class="font-bold text-gray-800">Editar Foto do Topo</p>
-                                    <p class="text-xs text-gray-500">Banner do cardápio</p>
+                                <div class="min-w-0">
+                                    <p class="font-bold text-gray-800 truncate">Foto do Topo</p>
+                                    <p class="text-xs text-gray-500 truncate">Banner do cardápio</p>
                                 </div>
                             </div>
                         </button>
@@ -1104,6 +1115,102 @@
                 showToast("Erro ao salvar: " + err.message, "error");
                 btn.disabled = false;
                 btn.innerHTML = '<i class="fas fa-save"></i> Salvar Nome';
+            }
+        };
+
+        window.openSlugEditor = function() {
+            const currentSlug = state.currentTenant?.slug || '';
+            const baseUrl = window.location.href.split('#')[0];
+            const currentFullLink = `${baseUrl}#/cardapio/${currentSlug}`;
+
+            const html = `
+                <div class="fixed inset-0 z-50 flex items-center justify-center p-4 overlay fade-in">
+                    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
+                        <div class="p-6 border-b flex justify-between items-center bg-gray-50">
+                            <h3 class="font-bold text-gray-800 text-lg flex items-center gap-2">
+                                <i class="fas fa-link text-indigo-500"></i> Mudar Link do Cardápio
+                            </h3>
+                            <button onclick="closeModal()" class="text-gray-400 hover:text-gray-800 text-xl leading-none">&times;</button>
+                        </div>
+                        <div class="p-6 space-y-4">
+                            <form onsubmit="saveSlug(event)" class="space-y-4">
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-700 mb-1">Identificador do Link (Slug)</label>
+                                    <div class="flex items-center bg-gray-50 border border-gray-300 rounded-xl overflow-hidden focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-100 transition">
+                                        <span class="pl-3.5 pr-1 text-xs text-gray-400 font-mono font-bold select-none">wa.com/</span>
+                                        <input type="text" id="tenant-slug-input" required value="${currentSlug}" placeholder="meu-restaurante" class="w-full py-3 pr-4 bg-transparent outline-none text-sm font-mono font-bold text-indigo-700" oninput="this.value = this.value.toLowerCase().replace(/[^a-z0-9-]/g, ''); document.getElementById('slug-preview-text').innerText = this.value || 'seu-link';">
+                                    </div>
+                                    <p class="text-[11px] text-gray-400 mt-1.5">Use apenas letras minúsculas, números e traços (sem espaços ou acentos).</p>
+                                </div>
+
+                                <div class="p-3.5 bg-indigo-50/70 border border-indigo-100 rounded-2xl">
+                                    <p class="text-xs font-bold text-indigo-900 mb-1 flex items-center gap-1.5">
+                                        <i class="fas fa-eye text-indigo-500"></i> Prévia do Link que será enviado:
+                                    </p>
+                                    <p class="text-xs font-mono text-indigo-700 break-all bg-white p-2.5 rounded-xl border border-indigo-200 shadow-sm">
+                                        ${baseUrl}#/cardapio/<span id="slug-preview-text" class="font-black text-brand-600">${currentSlug}</span>
+                                    </p>
+                                </div>
+
+                                <div class="flex gap-3 pt-2">
+                                    <button type="button" onclick="closeModal()" class="flex-1 py-3 rounded-xl bg-gray-100 text-gray-600 font-bold hover:bg-gray-200 transition text-sm">Cancelar</button>
+                                    <button type="submit" id="btn-save-slug" class="flex-1 py-3 rounded-xl bg-indigo-600 text-white font-bold hover:bg-indigo-700 transition shadow-lg shadow-indigo-600/30 text-sm flex items-center justify-center gap-1.5">
+                                        <i class="fas fa-check"></i> Salvar Novo Link
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            `;
+            openModal(html);
+        };
+
+        window.saveSlug = async function(e) {
+            e.preventDefault();
+            const btn = document.getElementById('btn-save-slug');
+            const slugInput = document.getElementById('tenant-slug-input');
+            const newSlug = slugInput.value.trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
+
+            if (!newSlug || newSlug.length < 2) {
+                showToast("O link deve ter pelo menos 2 caracteres.", "error");
+                return;
+            }
+
+            if (newSlug === state.currentTenant?.slug) {
+                showToast("O link informado é igual ao atual.");
+                closeModal();
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerHTML = '<div class="loader w-4 h-4 border-2 border-white border-t-transparent mx-auto"></div>';
+
+            try {
+                // Verificar se outro restaurante já está usando este slug
+                const q = query(collection(db, collections.tenants), where("slug", "==", newSlug));
+                const snap = await getDocs(q);
+                const isTaken = snap.docs.some(d => d.id !== state.currentTenant.id);
+
+                if (isTaken) {
+                    showToast("Este link já está em uso por outro restaurante. Escolha outro.", "error");
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-check"></i> Salvar Novo Link';
+                    return;
+                }
+
+                const tenantRef = doc(db, collections.tenants, state.currentTenant.id);
+                await setDoc(tenantRef, { slug: newSlug }, { merge: true });
+                state.currentTenant.slug = newSlug;
+
+                showToast("Link do cardápio atualizado com sucesso!");
+                closeModal();
+                handleRoute();
+            } catch (err) {
+                console.error("Erro ao salvar link do cardápio:", err);
+                showToast("Erro ao salvar link: " + err.message, "error");
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-check"></i> Salvar Novo Link';
             }
         };
 
