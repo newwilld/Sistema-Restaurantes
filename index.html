@@ -55,22 +55,6 @@
         .sortable-chosen { box-shadow: 0 12px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1); }
         .sortable-drag { cursor: grabbing !important; opacity: 0.95; transform: rotate(1deg); }
         .drag-handle { touch-action: none; user-select: none; -webkit-user-select: none; }
-
-        .image-upload-preview {
-            width: 100%;
-            height: 150px;
-            object-fit: cover;
-            border-radius: 12px;
-            border: 2px dashed #e5e7eb;
-            transition: all 0.3s;
-        }
-        .image-upload-preview:hover {
-            border-color: #ef4444;
-        }
-        .image-upload-preview.has-image {
-            border-style: solid;
-            border-color: #22c55e;
-        }
     </style>
 </head>
 <body class="text-gray-800 antialiased overflow-x-hidden">
@@ -86,9 +70,8 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile, updatePassword, updateEmail, reauthenticateWithCredential, EmailAuthProvider } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, signInAnonymously, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile, updatePassword, updateEmail } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, getDoc, setDoc, addDoc, collection, getDocs, updateDoc, deleteDoc, onSnapshot, query, where, serverTimestamp, writeBatch } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyCZyMVAn_F3me72l8N1PqKTfgnb0cQpUKA",
@@ -103,7 +86,9 @@
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
         const auth = getAuth(app);
-        const storage = getStorage(app);
+
+        const secondaryApp = initializeApp(firebaseConfig, "SecondaryApp");
+        const secondaryAuth = getAuth(secondaryApp);
 
         const collections = {
             tenants: "saas_tenants",
@@ -131,9 +116,7 @@
             superAdminOrders: [],
             superAdminNotifications: [],
             
-            isAppLoaded: false,
-            tempImageFile: null,
-            tempImageType: null
+            isAppLoaded: false
         };
 
         function generateId() {
@@ -256,13 +239,14 @@
                 
                 if (!state.isAppLoaded) {
                     state.isAppLoaded = true;
-                    setupRouter();
+                    setupRouter(); // Only start router after auth is verified
                 } else {
                     handleRoute();
                 }
             });
         }
         
+        // Starts the application
         window.onload = function() {
             initializeAppAuth();
         };
@@ -537,6 +521,7 @@
 
                     showToast('Restaurante criado com sucesso! Bem-vindo(a).');
                     
+                    // Force Instant Routing Without Refresh (Optimized)
                     window.location.hash = ''; 
                     setTimeout(() => { window.location.hash = '#/admin'; }, 50);
 
@@ -567,6 +552,7 @@
 
                     showToast('Acesso liberado.');
                     
+                    // Force Instant Routing Without Refresh (Optimized)
                     window.location.hash = ''; 
                     setTimeout(() => { window.location.hash = state.isSuperAdmin ? '#/superadmin' : '#/admin'; }, 50);
                 }
@@ -871,182 +857,6 @@
             `;
         }
 
-        // ==================== FUNÇÕES DE UPLOAD DE IMAGENS ====================
-        
-        async function uploadImageToStorage(file, tenantId, imageType) {
-            if (!file) return null;
-            const storageRef = ref(storage, `tenants/${tenantId}/${imageType}_${Date.now()}.jpg`);
-            await uploadBytes(storageRef, file);
-            const url = await getDownloadURL(storageRef);
-            return url;
-        }
-
-        // ==================== FUNÇÕES DE CONFIGURAÇÕES ====================
-
-        window.updateTenantName = async function() {
-            const btn = document.getElementById('btn-save-name');
-            const newName = document.getElementById('cfg-name').value.trim();
-            if (!newName) { showToast('Digite um nome válido.', 'error'); return; }
-            
-            btn.disabled = true;
-            btn.innerHTML = 'Salvando...';
-            
-            try {
-                await updateDoc(doc(db, collections.tenants, state.currentTenant.id), { name: newName });
-                state.currentTenant.name = newName;
-                showToast('Nome atualizado com sucesso!');
-                loadAdminData();
-            } catch (err) {
-                showToast('Erro ao atualizar nome.', 'error');
-            } finally {
-                btn.disabled = false;
-                btn.innerHTML = 'Salvar Nome';
-            }
-        };
-
-        window.updateTenantSlug = async function() {
-            const btn = document.getElementById('btn-save-slug');
-            const newSlug = document.getElementById('cfg-slug').value.trim().toLowerCase().replace(/[^a-z0-9-]/g, '');
-            if (!newSlug || newSlug.length < 3) { showToast('Link deve ter pelo menos 3 caracteres.', 'error'); return; }
-            
-            btn.disabled = true;
-            btn.innerHTML = 'Salvando...';
-            
-            try {
-                // Verifica se o slug já está em uso
-                const q = query(collection(db, collections.tenants), where("slug", "==", newSlug));
-                const snap = await getDocs(q);
-                if (!snap.empty && snap.docs[0].id !== state.currentTenant.id) {
-                    showToast('Este link já está em uso.', 'error');
-                    btn.disabled = false;
-                    btn.innerHTML = 'Salvar Link';
-                    return;
-                }
-                
-                await updateDoc(doc(db, collections.tenants, state.currentTenant.id), { slug: newSlug });
-                state.currentTenant.slug = newSlug;
-                showToast('Link atualizado com sucesso!');
-                loadAdminData();
-            } catch (err) {
-                showToast('Erro ao atualizar link.', 'error');
-            } finally {
-                btn.disabled = false;
-                btn.innerHTML = 'Salvar Link';
-            }
-        };
-
-        window.uploadProfileImage = async function() {
-            const input = document.getElementById('profile-image-input');
-            const file = input.files[0];
-            if (!file) { showToast('Selecione uma imagem.', 'error'); return; }
-            
-            const btn = document.getElementById('btn-upload-profile');
-            btn.disabled = true;
-            btn.innerHTML = 'Enviando...';
-            
-            try {
-                const url = await uploadImageToStorage(file, state.currentTenant.id, 'profile');
-                await updateDoc(doc(db, collections.tenants, state.currentTenant.id), {
-                    'settings.profileImage': url
-                });
-                if (!state.currentTenant.settings) state.currentTenant.settings = {};
-                state.currentTenant.settings.profileImage = url;
-                showToast('Foto de perfil atualizada!');
-                
-                // Atualiza preview
-                const preview = document.getElementById('profile-preview');
-                if (preview) preview.src = url;
-                loadAdminData();
-            } catch (err) {
-                showToast('Erro ao fazer upload.', 'error');
-            } finally {
-                btn.disabled = false;
-                btn.innerHTML = 'Enviar Foto';
-            }
-        };
-
-        window.uploadBannerImage = async function() {
-            const input = document.getElementById('banner-image-input');
-            const file = input.files[0];
-            if (!file) { showToast('Selecione uma imagem.', 'error'); return; }
-            
-            const btn = document.getElementById('btn-upload-banner');
-            btn.disabled = true;
-            btn.innerHTML = 'Enviando...';
-            
-            try {
-                const url = await uploadImageToStorage(file, state.currentTenant.id, 'banner');
-                await updateDoc(doc(db, collections.tenants, state.currentTenant.id), {
-                    'settings.coverImage': url
-                });
-                if (!state.currentTenant.settings) state.currentTenant.settings = {};
-                state.currentTenant.settings.coverImage = url;
-                showToast('Banner atualizado!');
-                
-                const preview = document.getElementById('banner-preview');
-                if (preview) preview.src = url;
-                loadAdminData();
-            } catch (err) {
-                showToast('Erro ao fazer upload.', 'error');
-            } finally {
-                btn.disabled = false;
-                btn.innerHTML = 'Enviar Banner';
-            }
-        };
-
-        // ==================== FUNÇÃO DE TROCAR SENHA ====================
-
-        window.changePassword = async function() {
-            const oldPass = document.getElementById('old-password').value;
-            const newPass = document.getElementById('new-password').value;
-            const confirmPass = document.getElementById('confirm-password').value;
-            
-            if (!oldPass || !newPass || !confirmPass) {
-                showToast('Preencha todos os campos.', 'error');
-                return;
-            }
-            
-            if (newPass.length < 6) {
-                showToast('A nova senha deve ter pelo menos 6 caracteres.', 'error');
-                return;
-            }
-            
-            if (newPass !== confirmPass) {
-                showToast('As senhas não coincidem.', 'error');
-                return;
-            }
-            
-            const btn = document.getElementById('btn-change-password');
-            btn.disabled = true;
-            btn.innerHTML = 'Alterando...';
-            
-            try {
-                const user = auth.currentUser;
-                const credential = EmailAuthProvider.credential(user.email, oldPass);
-                await reauthenticateWithCredential(user, credential);
-                await updatePassword(user, newPass);
-                
-                showToast('Senha alterada com sucesso!');
-                document.getElementById('old-password').value = '';
-                document.getElementById('new-password').value = '';
-                document.getElementById('confirm-password').value = '';
-            } catch (err) {
-                console.error(err);
-                if (err.code === 'auth/wrong-password') {
-                    showToast('Senha antiga incorreta.', 'error');
-                } else if (err.code === 'auth/too-many-requests') {
-                    showToast('Muitas tentativas. Tente novamente mais tarde.', 'error');
-                } else {
-                    showToast('Erro ao alterar senha: ' + err.message, 'error');
-                }
-            } finally {
-                btn.disabled = false;
-                btn.innerHTML = 'Alterar Senha';
-            }
-        };
-
-        // ==================== FUNÇÕES DE ADMIN ====================
-
         async function loadAdminData() {
             if (!state.currentTenant) return;
             const q = query(collection(db, collections.products), where("tenantId", "==", state.currentTenant.id));
@@ -1165,102 +975,18 @@
 
         function renderAdminSettings() {
             const t = state.currentTenant || {};
-            const settings = t.settings || {};
-            
             return `
-                <div class="max-w-3xl mx-auto space-y-6">
-                    <!-- Informações de Contato -->
+                <div class="max-w-2xl mx-auto space-y-6">
                     <div class="bg-white p-6 md:p-8 rounded-3xl border border-gray-100 shadow-sm">
                         <h3 class="font-black text-gray-800 text-xl mb-1 flex items-center gap-2">
                             <i class="fas fa-address-card text-brand-500"></i> Informações de Contato
                         </h3>
-                        <p class="text-sm text-gray-500 mb-4">Atualize o número de telefone/WhatsApp que seus clientes verão.</p>
                         <form onsubmit="saveTenantSettings(event)" class="space-y-4">
                             <div>
                                 <label class="block text-sm font-bold text-gray-700 mb-1">WhatsApp de Contato</label>
                                 <input type="text" id="cfg-phone" value="${t.phone || ''}" required placeholder="(11) 99999-9999" class="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:bg-white focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 transition font-medium">
                             </div>
                             <button type="submit" id="btn-save-cfg" class="bg-gray-900 text-white font-bold py-3 px-6 rounded-xl hover:bg-black transition shadow-md w-full sm:w-auto">Salvar Contato</button>
-                        </form>
-                    </div>
-
-                    <!-- Editar Nome do Restaurante -->
-                    <div class="bg-white p-6 md:p-8 rounded-3xl border border-gray-100 shadow-sm">
-                        <h3 class="font-black text-gray-800 text-xl mb-1 flex items-center gap-2">
-                            <i class="fas fa-store text-brand-500"></i> Editar Nome
-                        </h3>
-                        <p class="text-sm text-gray-500 mb-4">Nome que será exibido no link público do cardápio.</p>
-                        <div class="flex flex-col sm:flex-row gap-3">
-                            <input type="text" id="cfg-name" value="${t.name || ''}" placeholder="Nome do restaurante" class="flex-1 px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:bg-white focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 transition font-medium">
-                            <button onclick="updateTenantName()" id="btn-save-name" class="bg-brand-500 text-white font-bold py-3 px-6 rounded-xl hover:bg-brand-600 transition shadow-md whitespace-nowrap">Salvar Nome</button>
-                        </div>
-                    </div>
-
-                    <!-- Editar Link do Cardápio -->
-                    <div class="bg-white p-6 md:p-8 rounded-3xl border border-gray-100 shadow-sm">
-                        <h3 class="font-black text-gray-800 text-xl mb-1 flex items-center gap-2">
-                            <i class="fas fa-link text-brand-500"></i> Editar Link do Cardápio
-                        </h3>
-                        <p class="text-sm text-gray-500 mb-4">URL pública do seu cardápio. Use apenas letras, números e hífens.</p>
-                        <div class="flex flex-col sm:flex-row gap-3">
-                            <div class="flex-1 flex items-center bg-gray-50 border border-gray-300 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-brand-500/20 focus-within:border-brand-500 transition">
-                                <span class="px-3 text-gray-500 text-sm font-mono bg-gray-100 py-3 border-r border-gray-200 whitespace-nowrap">wa.com/</span>
-                                <input type="text" id="cfg-slug" value="${t.slug || ''}" placeholder="sua-loja" class="flex-1 px-3 py-3 outline-none bg-transparent font-mono text-sm" onkeyup="document.getElementById('cfg-slug').value = this.value.toLowerCase().replace(/[^a-z0-9-]/g, '')">
-                            </div>
-                            <button onclick="updateTenantSlug()" id="btn-save-slug" class="bg-brand-500 text-white font-bold py-3 px-6 rounded-xl hover:bg-brand-600 transition shadow-md whitespace-nowrap">Salvar Link</button>
-                        </div>
-                    </div>
-
-                    <!-- Foto de Perfil (Logo) -->
-                    <div class="bg-white p-6 md:p-8 rounded-3xl border border-gray-100 shadow-sm">
-                        <h3 class="font-black text-gray-800 text-xl mb-1 flex items-center gap-2">
-                            <i class="fas fa-image text-brand-500"></i> Foto Perfil / Logo
-                        </h3>
-                        <p class="text-sm text-gray-500 mb-4">Logo do restaurante que aparece no cardápio público.</p>
-                        <div class="flex flex-col sm:flex-row items-start gap-4">
-                            <img id="profile-preview" src="${settings.profileImage || 'https://placehold.co/150x150/f3f4f6/a1a1aa?text=Logo'}" alt="Logo" class="w-32 h-32 rounded-2xl object-cover bg-gray-100 border-2 border-gray-200">
-                            <div class="flex-1 space-y-3">
-                                <input type="file" id="profile-image-input" accept="image/*" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-bold file:bg-brand-50 file:text-brand-700 hover:file:bg-brand-100 transition">
-                                <button onclick="uploadProfileImage()" id="btn-upload-profile" class="bg-brand-500 text-white font-bold py-2.5 px-6 rounded-xl hover:bg-brand-600 transition shadow-md">Enviar Foto</button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Foto do Topo (Banner) -->
-                    <div class="bg-white p-6 md:p-8 rounded-3xl border border-gray-100 shadow-sm">
-                        <h3 class="font-black text-gray-800 text-xl mb-1 flex items-center gap-2">
-                            <i class="fas fa-image text-brand-500"></i> Foto do Topo / Banner
-                        </h3>
-                        <p class="text-sm text-gray-500 mb-4">Imagem de capa que aparece no topo do cardápio público.</p>
-                        <div class="flex flex-col sm:flex-row items-start gap-4">
-                            <img id="banner-preview" src="${settings.coverImage || 'https://placehold.co/800x300/f3f4f6/a1a1aa?text=Capa'}" alt="Banner" class="w-48 h-32 rounded-2xl object-cover bg-gray-100 border-2 border-gray-200">
-                            <div class="flex-1 space-y-3">
-                                <input type="file" id="banner-image-input" accept="image/*" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-bold file:bg-brand-50 file:text-brand-700 hover:file:bg-brand-100 transition">
-                                <button onclick="uploadBannerImage()" id="btn-upload-banner" class="bg-brand-500 text-white font-bold py-2.5 px-6 rounded-xl hover:bg-brand-600 transition shadow-md">Enviar Banner</button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Segurança - Trocar Senha -->
-                    <div class="bg-white p-6 md:p-8 rounded-3xl border border-gray-100 shadow-sm">
-                        <h3 class="font-black text-gray-800 text-xl mb-1 flex items-center gap-2">
-                            <i class="fas fa-shield-alt text-brand-500"></i> Segurança
-                        </h3>
-                        <p class="text-sm text-gray-500 mb-4">Altere sua senha de acesso ao painel. O administrador será notificado da alteração.</p>
-                        <form onsubmit="event.preventDefault(); changePassword();" class="space-y-4">
-                            <div>
-                                <label class="block text-sm font-bold text-gray-700 mb-1">Senha Antiga</label>
-                                <input type="password" id="old-password" required placeholder="Digite sua senha atual" class="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:bg-white focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 transition">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-bold text-gray-700 mb-1">Nova Senha</label>
-                                <input type="password" id="new-password" required placeholder="Mínimo 6 caracteres" class="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:bg-white focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 transition">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-bold text-gray-700 mb-1">Confirmar Nova Senha</label>
-                                <input type="password" id="confirm-password" required placeholder="Digite a nova senha novamente" class="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:bg-white focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 transition">
-                            </div>
-                            <button type="submit" id="btn-change-password" class="bg-gray-900 text-white font-bold py-3 px-6 rounded-xl hover:bg-black transition shadow-md">Alterar Senha</button>
                         </form>
                     </div>
                 </div>
@@ -1276,9 +1002,9 @@
                 await updateDoc(doc(db, collections.tenants, state.currentTenant.id), { phone: newPhone });
                 state.currentTenant.phone = newPhone;
                 showToast("Contato atualizado com sucesso!");
+                btn.disabled = false; btn.innerHTML = 'Salvar Contato';
             } catch(err) {
                 showToast("Erro ao atualizar: " + err.message, "error");
-            } finally {
                 btn.disabled = false; btn.innerHTML = 'Salvar Contato';
             }
         };
@@ -1295,7 +1021,7 @@
                 showToast(`Restaurante agora está ${newState ? 'ABERTO' : 'FECHADO'}!`, 'success');
                 
                 const contentDiv = document.getElementById('admin-content');
-                if (contentDiv && window.location.hash.includes('cardapio')) {
+                if (contentDiv) {
                     contentDiv.innerHTML = getAdminContent('cardapio');
                     initAdminSortable();
                 }
@@ -1573,92 +1299,44 @@
             const order = state.adminOrders.find(o => o.id === orderId);
             if (!order) return;
 
-            const tenantPhone = state.currentTenant?.phone || '';
-            const wppLink = `https://wa.me/55${tenantPhone.replace(/[^0-9]/g, '')}?text=Olá!%20Gostaria%20de%20falar%20sobre%20meu%20pedido%20%23${orderId.substring(0,6)}`;
-
             const html = `
                 <div class="fixed inset-0 z-50 flex items-center justify-center p-4 overlay fade-in">
                     <div class="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
                         <div class="p-6 border-b flex justify-between items-center bg-gray-50">
                             <div>
                                 <h3 class="font-bold text-gray-800 text-lg flex items-center gap-2">
-                                    <i class="fas fa-receipt text-brand-500"></i> Detalhes & Edição do Pedido
+                                    <i class="fas fa-receipt text-brand-500"></i> Editar Status do Pedido
                                 </h3>
-                                <p class="text-xs text-gray-400 font-mono mt-0.5">ID: #${order.id.substring(0,8)} | Realizado em: ${new Date(order.createdAt).toLocaleString('pt-BR')}</p>
+                                <p class="text-xs text-gray-400 font-mono mt-0.5">ID: #${order.id.substring(0,8)}</p>
                             </div>
                             <button onclick="closeModal()" class="text-gray-400 hover:text-gray-800 text-2xl leading-none">&times;</button>
                         </div>
                         
                         <div class="p-6 overflow-y-auto flex-grow space-y-5">
                             <form id="order-edit-form" onsubmit="saveOrderEdits(event, '${order.id}')" class="space-y-4">
-                                <!-- WhatsApp do Restaurante -->
-                                ${tenantPhone ? `
-                                <div class="bg-green-50 p-4 rounded-2xl border border-green-200">
-                                    <h4 class="font-bold text-xs uppercase tracking-wider text-green-800 mb-2"><i class="fab fa-whatsapp text-green-600 mr-1"></i> WhatsApp do Restaurante (Contato para Dúvidas)</h4>
-                                    <div class="flex items-center justify-between">
-                                        <span class="text-sm font-bold text-green-900">${tenantPhone}</span>
-                                        <a href="${wppLink}" target="_blank" class="bg-green-500 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-green-600 transition shadow-md flex items-center gap-2">
-                                            <i class="fab fa-whatsapp"></i> Falar com Lojista
-                                        </a>
+                                <div class="bg-brand-50/50 p-4 rounded-2xl border border-brand-100">
+                                    <h4 class="font-black text-xs uppercase tracking-wider text-brand-900 mb-3">Informações</h4>
+                                    <p class="text-sm font-bold text-gray-800">${order.customer?.name}</p>
+                                    <p class="text-xs text-gray-600 mb-2">${order.customer?.address}</p>
+                                    <div class="space-y-1 mb-2 border-t border-brand-200 pt-2">
+                                        ${order.items.map(i => `<p class="text-xs"><strong>${i.quantity}x</strong> ${i.name} - ${(i.price*i.quantity).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</p>`).join('')}
                                     </div>
-                                </div>
-                                ` : ''}
-                                
-                                <!-- Informações do Cliente Editáveis -->
-                                <div class="bg-blue-50/50 p-4 rounded-2xl border border-blue-100">
-                                    <h4 class="font-bold text-xs uppercase tracking-wider text-blue-800 mb-3">Informações do Cliente (Editáveis)</h4>
-                                    <div class="space-y-3">
-                                        <div>
-                                            <label class="block text-xs font-bold text-gray-700 mb-1">Nome do Cliente</label>
-                                            <input type="text" id="edit-customer-name" value="${order.customer?.name || ''}" class="w-full px-3 py-2 bg-white border border-gray-300 rounded-xl outline-none focus:border-brand-500 text-sm">
-                                        </div>
-                                        <div>
-                                            <label class="block text-xs font-bold text-gray-700 mb-1">Telefone / WhatsApp</label>
-                                            <input type="text" id="edit-customer-phone" value="${order.customer?.phone || ''}" class="w-full px-3 py-2 bg-white border border-gray-300 rounded-xl outline-none focus:border-brand-500 text-sm">
-                                        </div>
-                                        <div>
-                                            <label class="block text-xs font-bold text-gray-700 mb-1">Endereço de Entrega</label>
-                                            <input type="text" id="edit-customer-address" value="${order.customer?.address || ''}" class="w-full px-3 py-2 bg-white border border-gray-300 rounded-xl outline-none focus:border-brand-500 text-sm">
-                                        </div>
-                                    </div>
+                                    <p class="text-sm font-black text-brand-600 border-t border-brand-200 pt-2">Total: ${(order.total || 0).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</p>
                                 </div>
 
-                                <!-- Itens do Pedido -->
-                                <div class="bg-gray-50 p-4 rounded-2xl border border-gray-200">
-                                    <h4 class="font-black text-xs uppercase tracking-wider text-gray-500 mb-3">Itens Pedidos & Informações</h4>
-                                    <div class="space-y-1 mb-3">
-                                        ${order.items.map(i => `
-                                            <p class="text-sm flex justify-between">
-                                                <span><strong>${i.quantity}x</strong> ${i.name}</span>
-                                                <span class="font-bold">${(i.price * i.quantity).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</span>
-                                            </p>
-                                        `).join('')}
-                                    </div>
-                                    <div class="border-t border-gray-200 pt-3">
-                                        <p class="text-sm text-gray-600"><strong>Observações do Pedido pelo Cliente (obs)</strong></p>
-                                        <p class="text-sm text-amber-700 italic bg-amber-50 p-2 rounded-lg border border-amber-200 mt-1">${order.observations || 'Sem observações'}</p>
-                                    </div>
-                                    <div class="border-t border-gray-200 pt-3 mt-3">
-                                        <div class="flex justify-between items-center">
-                                            <span class="font-bold text-gray-700">Status do Pedido</span>
-                                            <select id="modal-order-status" class="px-3 py-2 bg-white border border-gray-300 rounded-xl outline-none focus:border-brand-500 text-sm font-bold">
-                                                <option value="novo" ${order.status === 'novo' ? 'selected' : ''}>Novo / Analisando</option>
-                                                <option value="preparando" ${order.status === 'preparando' || order.status === 'aceito' ? 'selected' : ''}>Pedido Aceito / Preparando</option>
-                                                <option value="entrega" ${order.status === 'entrega' ? 'selected' : ''}>Saiu para Entrega</option>
-                                                <option value="entregue" ${order.status === 'entregue' ? 'selected' : ''}>Entregue / Concluído</option>
-                                                <option value="recusado" ${order.status === 'recusado' ? 'selected' : ''}>Recusado (Indisponível)</option>
-                                            </select>
-                                        </div>
-                                    </div>
-                                    <div class="border-t border-gray-200 pt-3 mt-3 flex justify-between items-center">
-                                        <span class="font-black text-gray-900">Valor Total (R$)</span>
-                                        <span class="font-black text-brand-600 text-lg">${(order.total || 0).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</span>
-                                    </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-700 mb-1">Status do Pedido (Atualiza em tempo real para o cliente)</label>
+                                    <select id="modal-order-status" class="w-full px-3.5 py-3 bg-white border border-gray-300 rounded-xl outline-none focus:border-brand-500 text-sm font-bold">
+                                        <option value="novo" ${order.status === 'novo' ? 'selected' : ''}>Novo / Analisando</option>
+                                        <option value="preparando" ${order.status === 'preparando' || order.status === 'aceito' ? 'selected' : ''}>Pedido Aceito / Preparando</option>
+                                        <option value="entrega" ${order.status === 'entrega' ? 'selected' : ''}>Saiu para Entrega</option>
+                                        <option value="entregue" ${order.status === 'entregue' ? 'selected' : ''}>Entregue / Concluído</option>
+                                        <option value="recusado" ${order.status === 'recusado' ? 'selected' : ''}>Recusado (Indisponível)</option>
+                                    </select>
                                 </div>
-                                
                                 <div class="mt-6 flex gap-3 pt-2">
                                     <button type="button" onclick="closeModal()" class="flex-1 py-3 rounded-xl bg-gray-100 text-gray-600 font-bold hover:bg-gray-200 transition text-sm">Cancelar</button>
-                                    <button type="submit" class="flex-1 py-3 rounded-xl bg-brand-500 text-white font-bold hover:bg-brand-600 transition shadow-lg shadow-brand-500/30 text-sm">Salvar Alterações</button>
+                                    <button type="submit" class="flex-1 py-3 rounded-xl bg-brand-500 text-white font-bold hover:bg-brand-600 transition shadow-lg shadow-brand-500/30 text-sm">Salvar Status</button>
                                 </div>
                             </form>
                         </div>
@@ -1674,16 +1352,7 @@
             if (!order) return;
             
             const newStatus = document.getElementById('modal-order-status').value;
-            const updatedCustomer = {
-                name: document.getElementById('edit-customer-name').value.trim(),
-                phone: document.getElementById('edit-customer-phone').value.trim(),
-                address: document.getElementById('edit-customer-address').value.trim()
-            };
-            
-            const updatePayload = { 
-                status: newStatus,
-                customer: updatedCustomer
-            };
+            const updatePayload = { status: newStatus };
             
             if(order.status !== newStatus) {
                 const historyEntry = {
@@ -1699,15 +1368,13 @@
             
             try {
                 await updateDoc(doc(db, collections.orders, orderId), updatePayload);
-                showToast('Pedido atualizado com sucesso!');
+                showToast('Status do pedido atualizado!');
                 closeModal();
                 loadAdminData();
             } catch(err) {
                 showToast('Erro ao atualizar: ' + err.message, 'error');
             }
         };
-
-        // ==================== FUNÇÕES PÚBLICAS (CARDÁPIO) ====================
 
         window.loadPublicMenuData = async function(slug) {
             try {
