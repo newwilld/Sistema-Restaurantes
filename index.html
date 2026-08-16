@@ -268,7 +268,7 @@
                             if (sidebarLink) sidebarLink.innerHTML = `<div class="flex items-center gap-3"><i class="fas fa-bell w-5"></i> Notificações</div>${sidebarBadgeHTML}`;
                             
                             // Emite alerta visual de nova notificação
-                            if (oldCount > 0 && newCount > oldCount) {
+                            if (newCount > oldCount) {
                                 showToast('Nova notificação recebida!', 'success');
                             }
                         }
@@ -480,7 +480,7 @@
 
                     await createAdminNotification({
                         type: 'admin_master',
-                        title: 'Novo Cliente Cadastrado',
+                        title: `Novo Cadastro @${name}`,
                         message: `${name} cadastrou-se na plataforma`,
                         customerName: name,
                         customerEmail: email,
@@ -736,7 +736,7 @@
                         ${state.superAdminNotifications.slice(0, 5).map(n => `
                             <div class="bg-white p-4 rounded-2xl border ${n.read ? 'border-gray-100' : 'border-purple-200 bg-gradient-to-r from-purple-50/25 via-white to-white shadow-sm'} flex items-start gap-3">
                                 <div class="w-10 h-10 rounded-xl ${n.read ? 'bg-gray-100 text-gray-500' : 'bg-purple-50 text-purple-600'} flex items-center justify-center shrink-0">
-                                    <i class="fas ${n.action === 'novo_cliente' ? 'fa-user-plus' : (n.action === 'senha_alterada' ? 'fa-key' : 'fa-edit')}"></i>
+                                    <i class="fas ${n.action === 'novo_cliente' ? 'fa-user-plus' : (n.action === 'senha_alterada' ? 'fa-key' : (n.action === 'vencimento' ? 'fa-calendar-exclamation' : 'fa-edit'))}"></i>
                                 </div>
                                 <div class="flex-grow min-w-0">
                                     <div class="flex items-center gap-2 mb-1">
@@ -794,7 +794,7 @@
                     ${state.superAdminNotifications.map(n => `
                         <div class="bg-white rounded-2xl p-5 border ${n.read ? 'border-gray-100' : 'border-purple-200 bg-gradient-to-r from-purple-50/25 via-white to-white shadow-sm'} flex items-start gap-4">
                             <div class="w-11 h-11 rounded-2xl ${n.read ? 'bg-gray-100 text-gray-500' : 'bg-purple-50 text-purple-600'} flex items-center justify-center text-lg shrink-0 mt-0.5">
-                                <i class="fas ${n.action === 'novo_cliente' ? 'fa-user-plus' : (n.action === 'senha_alterada' ? 'fa-key' : 'fa-edit')}"></i>
+                                <i class="fas ${n.action === 'novo_cliente' ? 'fa-user-plus' : (n.action === 'senha_alterada' ? 'fa-key' : (n.action === 'vencimento' ? 'fa-calendar-exclamation' : 'fa-edit'))}"></i>
                             </div>
                             <div class="flex-grow min-w-0">
                                 <div class="flex flex-wrap items-center gap-1.5 mb-1.5">
@@ -1256,8 +1256,8 @@
 
                 await createAdminNotification({
                     type: 'admin_master',
-                    title: 'Novo Cliente Cadastrado',
-                    message: `${name} foi cadastrado na plataforma`,
+                    title: `Novo Cadastro @${name}`,
+                    message: `${name} foi cadastrado na plataforma pelo administrador`,
                     customerName: name,
                     customerEmail: email,
                     action: 'novo_cliente'
