@@ -2860,12 +2860,14 @@
             const columns = [
                 { title: 'Em Aberto', description: 'Pedido enviado ao restaurante', statuses: ['enviado', 'analisando'], icon: 'fa-inbox', color: 'blue' },
                 { title: 'Pedido Preparando', description: 'Pedidos já aceitos', statuses: ['aceito', 'preparando'], icon: 'fa-fire', color: 'amber' },
-                { title: 'Em Entrega', description: 'A caminho do cliente', statuses: ['entrega'], icon: 'fa-motorcycle', color: 'purple' }
+                { title: 'Em Entrega', description: 'A caminho do cliente', statuses: ['entrega'], icon: 'fa-motorcycle', color: 'purple' },
+                { title: 'Outros Status', description: 'Cancelados, entregues e demais pedidos', statuses: null, icon: 'fa-ellipsis-h', color: 'gray' }
             ];
             const colorClasses = {
                 blue: 'bg-blue-50 border-blue-100 text-blue-600',
                 amber: 'bg-amber-50 border-amber-100 text-amber-600',
-                purple: 'bg-purple-50 border-purple-100 text-purple-600'
+                purple: 'bg-purple-50 border-purple-100 text-purple-600',
+                gray: 'bg-gray-50 border-gray-200 text-gray-600'
             };
             const renderOrderCard = (order) => `
                 <button onclick="openOrderDetailsModal('${order.id}')" class="w-full text-left bg-white hover:border-brand-300 hover:shadow-sm border border-gray-200 rounded-2xl p-4 transition group">
@@ -2873,9 +2875,12 @@
                 </button>`;
             return `
                 <div class="flex justify-between items-center mb-6"><div><h3 class="font-bold text-gray-800 text-lg">Gestão de Pedidos</h3><p class="text-xs text-gray-500">Organize os pedidos por etapa. Clique em um cliente para ver e editar o pedido.</p></div></div>
-                <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+                <div class="grid grid-cols-1 lg:grid-cols-4 gap-5">
                     ${columns.map(column => {
-                        const orders = state.adminOrders.filter(order => column.statuses.includes(order.status));
+                        const mainStatuses = ['enviado', 'analisando', 'aceito', 'preparando', 'entrega'];
+                        const orders = column.statuses
+                            ? state.adminOrders.filter(order => column.statuses.includes(order.status))
+                            : state.adminOrders.filter(order => !mainStatuses.includes(order.status));
                         return `<section class="rounded-2xl border ${colorClasses[column.color]} p-4"><div class="flex items-start justify-between gap-3 mb-4"><div><h4 class="font-black text-gray-800"><i class="fas ${column.icon} ${colorClasses[column.color].split(' ').pop()} mr-2"></i>${column.title}</h4><p class="text-xs text-gray-500 mt-1">${column.description}</p></div><span class="w-7 h-7 rounded-full bg-white/80 flex items-center justify-center text-xs font-black text-gray-700">${orders.length}</span></div><div class="space-y-3">${orders.map(renderOrderCard).join('') || '<div class="bg-white/60 border border-white rounded-xl p-6 text-center text-xs text-gray-400 font-medium">Nenhum pedido nesta etapa.</div>'}</div></section>`;
                     }).join('')}
                 </div>
