@@ -1517,6 +1517,13 @@
                         contentDiv.innerHTML = getAdminContent('pedidos');
                     }
                 }
+
+                if (window.location.hash.startsWith('#/admin/clientes')) {
+                    const contentDiv = document.getElementById('admin-content');
+                    if (contentDiv) {
+                        contentDiv.innerHTML = getAdminContent('clientes');
+                    }
+                }
                 
                 if (window.location.hash === '#/admin' || window.location.hash === '#/admin/dashboard') {
                     const contentDiv = document.getElementById('admin-content');
@@ -1623,6 +1630,7 @@
                             </a>
                             <a href="#/admin/dashboard" class="flex items-center gap-3 px-4 py-3 rounded-xl transition ${subRoute === 'dashboard' ? 'bg-brand-600 font-bold text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-chart-pie w-5"></i> Visão Geral</a>
                             <a href="#/admin/pedidos" class="flex items-center gap-3 px-4 py-3 rounded-xl transition ${subRoute === 'pedidos' ? 'bg-brand-600 font-bold text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-receipt w-5"></i> Pedidos</a>
+                            <a href="#/admin/clientes" class="flex items-center gap-3 px-4 py-3 rounded-xl transition ${subRoute === 'clientes' ? 'bg-brand-600 font-bold text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-users w-5"></i> Clientes</a>
                             <a href="#/admin/cardapio" class="flex items-center gap-3 px-4 py-3 rounded-xl transition ${subRoute === 'cardapio' ? 'bg-brand-600 font-bold text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-utensils w-5"></i> Meu Cardápio</a>
                             <a href="#/admin/configuracoes" class="flex items-center gap-3 px-4 py-3 rounded-xl transition ${subRoute === 'configuracoes' ? 'bg-brand-600 font-bold text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-cog w-5"></i> Configurações</a>
                         </nav>
@@ -1650,8 +1658,8 @@
                         
                         <header class="h-16 bg-white border-b px-8 flex items-center justify-between shrink-0 shadow-sm z-10">
                             <h2 class="text-lg font-bold text-gray-800 capitalize flex items-center gap-2">
-                                <i class="fas ${subRoute === 'notificacoes' ? 'fa-bell text-brand-500' : (subRoute === 'pedidos' ? 'fa-receipt text-blue-500' : (subRoute === 'cardapio' ? 'fa-utensils text-brand-500' : (subRoute === 'configuracoes' ? 'fa-cog text-gray-600' : 'fa-chart-pie text-green-500')))}"></i> 
-                                ${subRoute === 'notificacoes' ? 'Notificações & Histórico' : (subRoute === 'pedidos' ? 'Gestão de Pedidos' : (subRoute === 'cardapio' ? 'Meu Cardápio' : (subRoute === 'configuracoes' ? 'Configurações da Conta' : 'Visão Geral')))}
+                                <i class="fas ${subRoute === 'notificacoes' ? 'fa-bell text-brand-500' : (subRoute === 'pedidos' ? 'fa-receipt text-blue-500' : (subRoute === 'clientes' ? 'fa-users text-indigo-500' : (subRoute === 'cardapio' ? 'fa-utensils text-brand-500' : (subRoute === 'configuracoes' ? 'fa-cog text-gray-600' : 'fa-chart-pie text-green-500'))))}"></i> 
+                                ${subRoute === 'notificacoes' ? 'Notificações & Histórico' : (subRoute === 'pedidos' ? 'Gestão de Pedidos' : (subRoute === 'clientes' ? 'Clientes & Ranking' : (subRoute === 'cardapio' ? 'Meu Cardápio' : (subRoute === 'configuracoes' ? 'Configurações da Conta' : 'Visão Geral'))))}
                             </h2>
                             <div class="flex items-center gap-3">
                                 <a href="#/admin/notificacoes" class="relative p-2 text-gray-400 hover:text-brand-500 rounded-xl hover:bg-gray-50 transition" title="Notificações">
@@ -1668,6 +1676,7 @@
                         <div class="md:hidden bg-gray-900 text-white flex justify-around p-3 pb-safe border-t border-gray-800 shrink-0">
                              <a href="#/admin/dashboard" class="flex flex-col items-center gap-1 ${subRoute === 'dashboard' ? 'text-brand-500' : 'text-gray-400'}"><i class="fas fa-chart-pie text-xl"></i><span class="text-[10px] font-bold">Início</span></a>
                              <a href="#/admin/pedidos" class="flex flex-col items-center gap-1 ${subRoute === 'pedidos' ? 'text-brand-500' : 'text-gray-400'}"><i class="fas fa-receipt text-xl"></i><span class="text-[10px] font-bold">Pedidos</span></a>
+                             <a href="#/admin/clientes" class="flex flex-col items-center gap-1 ${subRoute === 'clientes' ? 'text-brand-500' : 'text-gray-400'}"><i class="fas fa-users text-xl"></i><span class="text-[10px] font-bold">Clientes</span></a>
                              <a href="#/admin/cardapio" class="flex flex-col items-center gap-1 ${subRoute === 'cardapio' ? 'text-brand-500' : 'text-gray-400'}"><i class="fas fa-utensils text-xl"></i><span class="text-[10px] font-bold">Cardápio</span></a>
                              <a href="#/admin/configuracoes" class="flex flex-col items-center gap-1 ${subRoute === 'configuracoes' ? 'text-brand-500' : 'text-gray-400'}"><i class="fas fa-cog text-xl"></i><span class="text-[10px] font-bold">Ajustes</span></a>
                         </div>
@@ -1719,13 +1728,107 @@
             openModal(html);
         };
 
+        function getAdminCustomers() {
+            const customers = new Map();
+
+            state.adminOrders.forEach(order => {
+                const customer = order.customer || {};
+                const name = (customer.name || 'Cliente sem nome').trim();
+                const phone = (customer.phone || '').replace(/\D/g, '');
+                const address = (customer.address || '').trim();
+                const key = phone || `${name.toLocaleLowerCase('pt-BR')}|${address.toLocaleLowerCase('pt-BR')}`;
+                const validOrder = !['cancelado', 'recusado'].includes(order.status);
+
+                if (!customers.has(key)) {
+                    customers.set(key, {
+                        key,
+                        name,
+                        phone: customer.phone || '',
+                        address,
+                        orders: [],
+                        validOrders: 0,
+                        totalSpent: 0,
+                        items: new Map(),
+                        lastOrderAt: 0
+                    });
+                }
+
+                const entry = customers.get(key);
+                entry.orders.push(order);
+                entry.lastOrderAt = Math.max(entry.lastOrderAt, order.createdAt || 0);
+                if (customer.phone) entry.phone = customer.phone;
+                if (address) entry.address = address;
+                if (name !== 'Cliente sem nome') entry.name = name;
+
+                if (validOrder) {
+                    entry.validOrders += 1;
+                    entry.totalSpent += Number(order.total) || 0;
+                    (order.items || []).forEach(item => {
+                        const itemKey = item.name || 'Item sem nome';
+                        entry.items.set(itemKey, (entry.items.get(itemKey) || 0) + (Number(item.quantity) || 1));
+                    });
+                }
+            });
+
+            return Array.from(customers.values()).map(customer => {
+                const favorite = Array.from(customer.items.entries()).sort((a, b) => b[1] - a[1])[0];
+                return {
+                    ...customer,
+                    favoriteItem: favorite ? favorite[0] : 'Ainda sem itens',
+                    favoriteQuantity: favorite ? favorite[1] : 0
+                };
+            }).sort((a, b) => b.validOrders - a.validOrders || b.totalSpent - a.totalSpent || b.lastOrderAt - a.lastOrderAt);
+        }
+
+        function renderCustomerRanking(customers, compact = false) {
+            const visibleCustomers = compact ? customers.slice(0, 5) : customers;
+            return `
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left">
+                            <thead class="bg-gray-50 text-xs uppercase text-gray-500 font-bold border-b border-gray-100">
+                                <tr>
+                                    <th class="p-4">Ranking</th>
+                                    <th class="p-4">Cliente</th>
+                                    <th class="p-4">Pedidos</th>
+                                    <th class="p-4">Total gasto</th>
+                                    <th class="p-4">Item mais pedido</th>
+                                    ${compact ? '' : '<th class="p-4 text-right">Ações</th>'}
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100 text-sm">
+                                ${visibleCustomers.map((customer, index) => `
+                                    <tr class="hover:bg-gray-50/80 transition group cursor-pointer" onclick="openCustomerDetailsModal(${index})">
+                                        <td class="p-4"><span class="w-8 h-8 inline-flex items-center justify-center rounded-full font-black ${index === 0 ? 'bg-amber-100 text-amber-600' : (index === 1 ? 'bg-gray-200 text-gray-600' : (index === 2 ? 'bg-orange-100 text-orange-600' : 'bg-brand-50 text-brand-600'))}">${index + 1}º</span></td>
+                                        <td class="p-4">
+                                            <div class="flex items-center gap-3">
+                                                <div class="w-10 h-10 rounded-xl bg-brand-50 text-brand-600 font-black flex items-center justify-center text-sm shrink-0">${customer.name.charAt(0).toUpperCase()}</div>
+                                                <div class="min-w-0"><div class="font-bold text-gray-900 truncate">${customer.name}</div><div class="text-xs text-gray-400 font-mono truncate">${customer.phone || 'Sem telefone'}</div></div>
+                                            </div>
+                                        </td>
+                                        <td class="p-4 font-bold text-gray-700">${customer.validOrders}</td>
+                                        <td class="p-4 font-black text-brand-600">${customer.totalSpent.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</td>
+                                        <td class="p-4 text-xs font-medium text-gray-600">${customer.favoriteItem}${customer.favoriteQuantity ? ` <span class="text-gray-400">(${customer.favoriteQuantity}x)</span>` : ''}</td>
+                                        ${compact ? '' : `<td class="p-4 text-right"><button onclick="event.stopPropagation(); openCustomerDetailsModal(${index})" class="bg-gray-100 hover:bg-brand-500 hover:text-white text-gray-700 px-3.5 py-1.5 rounded-xl text-xs font-bold transition"><i class="fas fa-eye"></i> Ver cliente</button></td>`}
+                                    </tr>
+                                `).join('')}
+                                ${visibleCustomers.length === 0 ? `<tr><td colspan="${compact ? 5 : 6}" class="p-12 text-center text-gray-400 font-medium">Nenhum cliente com pedido registrado ainda.</td></tr>` : ''}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        }
+
         function getAdminContent(route) {
             if (route === 'notificacoes') return renderAdminNotifications();
             if (route === 'cardapio') return renderAdminMenuBuilder();
             if (route === 'pedidos') return renderAdminOrders();
+            if (route === 'clientes') return renderAdminCustomers();
             if (route === 'configuracoes') return renderAdminSettings();
             
             const faturamento = state.adminOrders.reduce((sum, o) => sum + (o.status !== 'cancelado' ? o.total : 0), 0);
+            const customers = getAdminCustomers();
             return `
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                     <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
@@ -1741,6 +1844,34 @@
                         <h3 class="text-3xl font-black text-gray-800">${state.adminProducts.length}</h3>
                     </div>
                 </div>
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
+                    <div>
+                        <h3 class="font-bold text-gray-800 text-lg">Ranking de Clientes</h3>
+                        <p class="text-xs text-gray-500">Posição por pedidos válidos e, em caso de empate, pelo total gasto.</p>
+                    </div>
+                    <a href="#/admin/clientes" class="text-xs font-bold text-brand-600 hover:text-brand-700">Ver todos <i class="fas fa-arrow-right ml-1"></i></a>
+                </div>
+                ${renderCustomerRanking(customers, true)}
+            `;
+        }
+
+        function renderAdminCustomers() {
+            const customers = getAdminCustomers();
+            const topSpender = [...customers].sort((a, b) => b.totalSpent - a.totalSpent || b.validOrders - a.validOrders)[0];
+            return `
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-6">
+                    <div>
+                        <h3 class="font-bold text-gray-800 text-lg">Clientes</h3>
+                        <p class="text-xs text-gray-500">Clique em um cliente para ver contato, endereço, histórico e preferências.</p>
+                    </div>
+                    <div class="bg-brand-50 text-brand-700 px-4 py-2 rounded-xl text-xs font-black"><i class="fas fa-users mr-1.5"></i> ${customers.length} cliente(s)</div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                    <div class="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm"><p class="text-gray-500 font-bold uppercase text-xs mb-1">Clientes cadastrados</p><p class="text-2xl font-black text-gray-800">${customers.length}</p></div>
+                    <div class="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm"><p class="text-gray-500 font-bold uppercase text-xs mb-1">Líder em pedidos</p><p class="text-lg font-black text-gray-800 truncate">${customers[0]?.name || '—'}</p><p class="text-xs text-brand-600 font-bold mt-1">${customers[0]?.validOrders || 0} pedido(s) válido(s)</p></div>
+                    <div class="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm"><p class="text-gray-500 font-bold uppercase text-xs mb-1">Maior valor gasto</p><p class="text-lg font-black text-brand-600">${(topSpender?.totalSpent || 0).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</p><p class="text-xs text-gray-400 font-bold mt-1">${topSpender?.name || '—'}</p></div>
+                </div>
+                ${renderCustomerRanking(customers)}
             `;
         }
 
@@ -2677,6 +2808,53 @@
                 </div>
             `;
         }
+
+        window.openCustomerDetailsModal = function(customerIndex) {
+            const customer = getAdminCustomers()[customerIndex];
+            if (!customer) return;
+
+            const customerPhone = customer.phone.replace(/[^0-9]/g, '');
+            const customerWhatsAppUrl = customerPhone ? `https://wa.me/55${customerPhone}` : '#';
+            const orders = [...customer.orders].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+            const html = `
+                <div class="fixed inset-0 z-50 flex items-center justify-center p-4 overlay fade-in">
+                    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[90vh]">
+                        <div class="p-6 border-b flex justify-between items-start bg-gray-50">
+                            <div class="flex items-center gap-3 min-w-0">
+                                <div class="w-12 h-12 rounded-2xl bg-brand-50 text-brand-600 font-black flex items-center justify-center text-lg shrink-0">${customer.name.charAt(0).toUpperCase()}</div>
+                                <div class="min-w-0"><h3 class="font-black text-gray-800 text-lg truncate">${customer.name}</h3><p class="text-xs text-gray-400">Perfil e histórico do cliente</p></div>
+                            </div>
+                            <button onclick="closeModal()" class="text-gray-400 hover:text-gray-800 text-2xl leading-none ml-4">&times;</button>
+                        </div>
+                        <div class="p-6 overflow-y-auto space-y-5">
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                <div class="bg-brand-50 border border-brand-100 rounded-2xl p-4"><p class="text-[11px] uppercase font-black text-brand-700 mb-1">Pedidos válidos</p><p class="text-2xl font-black text-gray-800">${customer.validOrders}</p></div>
+                                <div class="bg-green-50 border border-green-100 rounded-2xl p-4"><p class="text-[11px] uppercase font-black text-green-700 mb-1">Total gasto</p><p class="text-xl font-black text-green-700">${customer.totalSpent.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</p></div>
+                                <div class="bg-amber-50 border border-amber-100 rounded-2xl p-4"><p class="text-[11px] uppercase font-black text-amber-700 mb-1">Item favorito</p><p class="text-sm font-black text-gray-800 truncate">${customer.favoriteItem}</p><p class="text-xs text-amber-700 font-bold mt-1">${customer.favoriteQuantity ? `${customer.favoriteQuantity} unidade(s)` : 'Sem pedidos válidos'}</p></div>
+                            </div>
+                            <div class="bg-gray-50 border border-gray-200 rounded-2xl p-4">
+                                <div class="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+                                    <div class="space-y-1 text-sm"><p class="font-bold text-gray-800"><i class="fas fa-phone text-brand-500 w-5"></i> ${customer.phone || 'Telefone não informado'}</p><p class="text-gray-600"><i class="fas fa-map-marker-alt text-brand-500 w-5"></i> ${customer.address || 'Endereço não informado'}</p></div>
+                                    ${customerPhone ? `<a href="${customerWhatsAppUrl}" target="_blank" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2.5 px-4 rounded-xl transition text-sm whitespace-nowrap"><i class="fab fa-whatsapp mr-1"></i> Falar no WhatsApp</a>` : ''}
+                                </div>
+                            </div>
+                            <div>
+                                <div class="flex items-center justify-between mb-3"><h4 class="font-black text-gray-800">Histórico de Pedidos</h4><span class="text-xs text-gray-400 font-bold">${orders.length} registro(s)</span></div>
+                                <div class="space-y-2">
+                                    ${orders.map(order => `
+                                        <button onclick="closeModal(); openOrderDetailsModal('${order.id}')" class="w-full text-left bg-white hover:bg-gray-50 border border-gray-200 hover:border-brand-200 rounded-xl p-4 transition">
+                                            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2"><div><p class="font-bold text-gray-800">Pedido #${order.id.substring(0, 8)} <span class="font-normal text-xs text-gray-400 ml-1">${new Date(order.createdAt || Date.now()).toLocaleString('pt-BR')}</span></p><p class="text-xs text-gray-500 mt-1">${(order.items || []).map(item => `${item.quantity || 1}x ${item.name}`).join(', ') || 'Sem itens informados'}</p></div><div class="font-black text-brand-600 whitespace-nowrap">${(Number(order.total) || 0).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})} <i class="fas fa-chevron-right text-xs text-gray-400 ml-2"></i></div></div>
+                                        </button>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            openModal(html);
+        };
 
         window.openOrderDetailsModal = function(orderId) {
             const order = state.adminOrders.find(o => o.id === orderId);
