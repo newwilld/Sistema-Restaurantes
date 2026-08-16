@@ -119,9 +119,6 @@
             isAppLoaded: false
         };
 
-        // TRAVA PARA OTIMIZAR O CADASTRO E LOGIN (Evita race conditions)
-        window.isHandlingAuth = false;
-
         function generateId() {
             return Math.random().toString(36).substring(2, 15);
         }
@@ -201,16 +198,13 @@
             }
         }
 
+        window.isAuthenticating = false; // FLAG DE OTIMIZAÇÃO
+
         async function initializeAppAuth() {
             onAuthStateChanged(auth, async (user) => {
-                // SE ESTIVERMOS NO MEIO DO LOGIN/CADASTRO, NÃO EXECUTAMOS O RESTO PARA EVITAR TRAVAMENTOS
-                if (window.isHandlingAuth) {
-                    state.currentUser = user;
-                    if (!state.isAppLoaded) {
-                        state.isAppLoaded = true;
-                    }
-                    return;
-                }
+                // Se o usuário estiver fazendo login ou cadastro manualmente, ignora este bloco
+                // para evitar conflito na busca do banco de dados antes da hora.
+                if (window.isAuthenticating) return; 
 
                 state.currentUser = user;
                 if (user) {
@@ -474,8 +468,8 @@
             const email = document.getElementById('email').value;
             const password = document.getElementById('password').value;
 
-            // Ativamos a trava para não gerar conflito com o onAuthStateChanged e garantir carregamento perfeito
-            window.isHandlingAuth = true;
+            // Bloqueia as chamadas automáticas para carregar a conta em 1 clique
+            window.isAuthenticating = true; 
 
             try {
                 if (isRegister && !isAdmin) {
@@ -508,28 +502,25 @@
 
                     await setDoc(doc(db, collections.tenants, userCreds.user.uid), tenantData);
 
-                    try {
-                        await createAdminNotification({
-                            type: 'admin_master',
-                            title: `Novo Cadastro @${name}`,
-                            message: `${name} cadastrou-se na plataforma`,
-                            customerName: name,
-                            customerEmail: email,
-                            action: 'novo_cliente'
-                        });
-                    } catch (notifErr) {
-                        console.warn("Aviso: Não foi possível criar notificação para admin:", notifErr);
-                    }
+                    // Criação de notificação otimizada (assíncrona, sem prender o carregamento)
+                    createAdminNotification({
+                        type: 'admin_master',
+                        title: `Novo Cadastro @${name}`,
+                        message: `${name} cadastrou-se na plataforma`,
+                        customerName: name,
+                        customerEmail: email,
+                        action: 'novo_cliente'
+                    }).catch(notifErr => console.warn("Aviso:", notifErr));
 
-                    // Definimos os estados manualmente e forçamos o redirecionamento
+                    // Injeta os dados imediatamente no sistema para carregamento perfeito
                     state.currentUser = userCreds.user;
                     state.currentTenant = { id: userCreds.user.uid, ...tenantData };
                     state.isSuperAdmin = false;
 
+                    window.isAuthenticating = false; // Libera trava
+
                     showToast('Restaurante criado com sucesso! Bem-vindo(a).');
-                    window.isHandlingAuth = false; // Liberamos a trava
                     window.location.hash = '#/admin';
-                    handleRoute(); // Forçamos a tela de admin carregar imediatamente
 
                 } else {
                     const userCreds = await signInWithEmailAndPassword(auth, email, password);
@@ -549,26 +540,22 @@
                             state.currentTenant = null;
                         }
                     } else {
-                        try {
-                            await loadSuperAdminNotifications();
-                        } catch (err) {
-                            console.warn("Aviso: Notificações do admin não carregadas:", err);
-                        }
+                        // Busca notificações assíncrono para velocidade
+                        loadSuperAdminNotifications().catch(err => console.warn(err));
                     }
 
+                    window.isAuthenticating = false; // Libera trava
+
                     showToast('Acesso liberado.');
-                    window.isHandlingAuth = false; // Liberamos a trava
                     window.location.hash = state.isSuperAdmin ? '#/superadmin' : '#/admin';
-                    handleRoute(); // Forçamos a tela carregar imediatamente
                 }
             } catch (error) {
+                window.isAuthenticating = false; // Restaura trava em caso de falha
                 console.error(error);
                 let msg = error.message;
                 if(error.code === 'auth/email-already-in-use') msg = "E-mail já cadastrado.";
                 if(error.code === 'auth/invalid-credential') msg = "E-mail ou senha incorretos.";
                 showToast(msg, 'error');
-                
-                window.isHandlingAuth = false; // Liberamos a trava caso dê erro
                 btn.innerHTML = originalText;
                 btn.disabled = false;
             }
@@ -1275,7 +1262,8 @@
                 btn.innerHTML = '<i class="fas fa-save"></i> Salvar Alterações';
             }
         };
-                window.openCreateTenantModal = function() {
+
+        window.openCreateTenantModal = function() {
             const d = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
             const defaultRenewal = d.toISOString().split('T')[0];
 
@@ -1779,7 +1767,8 @@
             }
             loadAdminData();
         };
-                function renderAdminSettings() {
+                
+        function renderAdminSettings() {
             const t = state.currentTenant || {};
             return `
                 <div class="max-w-2xl mx-auto space-y-6">
@@ -2358,7 +2347,8 @@
                 btn.disabled = false; btn.innerHTML = 'Salvar Produto';
             }
         }
-                window.openProductEditor = function(productId) {
+                
+        window.openProductEditor = function(productId) {
             const product = state.adminProducts.find(p => p.id === productId);
             if (!product) return;
             
@@ -2763,7 +2753,7 @@
             if (!oldOrder) {
                 showToast("Pedido não encontrado.", "error");
                 btn.disabled = false;
-                btn.innerHTML = 'Salvar Alterações';
+                btn.innerHTML = '<i class="fas fa-save"></i> Salvar Alterações';
                 return;
             }
 
@@ -2783,22 +2773,23 @@
             const oldTotal = oldOrder.total || 0;
 
             if (newName !== oldName) {
-                changes.push({ field: "Nome do Cliente", before: oldName || '(Vazio)', after: newName || '(Vazio)' });
+                changes.push({ field: "Nome do Cliente", before: oldName || '(Vazio)', after: newName });
             }
             if (newPhone !== oldPhone) {
-                changes.push({ field: "Telefone do Cliente", before: oldPhone || '(Vazio)', after: newPhone || '(Vazio)' });
+                changes.push({ field: "Telefone", before: oldPhone || '(Vazio)', after: newPhone });
             }
             if (newAddress !== oldAddress) {
-                changes.push({ field: "Endereço de Entrega", before: oldAddress || '(Vazio)', after: newAddress || '(Vazio)' });
+                changes.push({ field: "Endereço", before: oldAddress || '(Vazio)', after: newAddress });
             }
             if (newObs !== oldObs) {
-                changes.push({ field: "Observações do Pedido", before: oldObs || '(Vazio)', after: newObs || '(Vazio)' });
+                changes.push({ field: "Observações", before: oldObs || '(Vazio)', after: newObs });
             }
             if (newStatus !== oldStatus) {
-                changes.push({ field: "Status", before: oldStatus, after: newStatus });
+                const statusMap = { 'novo': 'Novo', 'preparando': 'Preparando', 'entrega': 'Em Entrega', 'entregue': 'Entregue', 'cancelado': 'Cancelado' };
+                changes.push({ field: "Status", before: statusMap[oldStatus], after: statusMap[newStatus] });
             }
             if (newTotal !== oldTotal) {
-                changes.push({ field: "Total (R$)", before: oldTotal.toLocaleString('pt-BR'), after: newTotal.toLocaleString('pt-BR') });
+                changes.push({ field: "Valor Total", before: `R$ ${oldTotal.toFixed(2)}`, after: `R$ ${newTotal.toFixed(2)}` });
             }
 
             if (changes.length === 0) {
@@ -2809,64 +2800,72 @@
 
             const historyEntry = {
                 id: generateId(),
+                createdAt: Date.now(),
                 author: 'Lojista',
                 customerName: newName,
-                changes: changes,
-                createdAt: Date.now(),
-                read: false
+                changes: changes
             };
 
-            const updatedOrderData = {
-                'customer.name': newName,
-                'customer.phone': newPhone,
-                'customer.address': newAddress,
+            const updatedOrder = {
+                ...oldOrder,
+                customer: {
+                    ...oldOrder.customer,
+                    name: newName,
+                    phone: newPhone,
+                    address: newAddress
+                },
                 observations: newObs,
                 status: newStatus,
-                total: newTotal
+                total: newTotal,
+                history: [historyEntry, ...(oldOrder.history || [])]
             };
 
             try {
-                const orderRef = doc(db, collections.orders, orderId);
-                const orderSnap = await getDoc(orderRef);
-                const currentHistory = orderSnap.exists() && orderSnap.data().history ? orderSnap.data().history : [];
-                currentHistory.unshift(historyEntry);
-
-                updatedOrderData.history = currentHistory;
-                await updateDoc(orderRef, updatedOrderData);
-
-                oldOrder.customer.name = newName;
-                oldOrder.customer.phone = newPhone;
-                oldOrder.customer.address = newAddress;
-                oldOrder.observations = newObs;
-                oldOrder.status = newStatus;
-                oldOrder.total = newTotal;
-                oldOrder.history = currentHistory;
-
+                await updateDoc(doc(db, collections.orders, orderId), updatedOrder);
+                
+                try {
+                    await setDoc(doc(collection(db, collections.notifications)), {
+                        tenantId: oldOrder.tenantId,
+                        orderId: orderId,
+                        createdAt: historyEntry.createdAt,
+                        author: historyEntry.author,
+                        customerName: historyEntry.customerName,
+                        changes: historyEntry.changes,
+                        read: false
+                    });
+                } catch(notifErr) {
+                    console.warn("Aviso ao salvar notificação avulsa:", notifErr);
+                }
+                
                 showToast("Pedido atualizado com sucesso!");
                 closeModal();
                 loadAdminData();
             } catch (err) {
                 console.error("Erro ao atualizar pedido:", err);
-                showToast("Erro ao atualizar o pedido.", "error");
+                showToast("Erro ao salvar alterações: " + err.message, "error");
                 btn.disabled = false;
                 btn.innerHTML = '<i class="fas fa-save"></i> Salvar Alterações';
             }
         };
 
-        // ... O resto do seu código original de renderização pública continua exatamente igual ...
-        
         async function loadPublicMenuData(slug) {
             try {
-                const tq = query(collection(db, collections.tenants), where("slug", "==", slug));
-                const tsnap = await getDocs(tq);
-                if (tsnap.empty) {
+                const q = query(collection(db, collections.tenants), where("slug", "==", slug));
+                const snap = await getDocs(q);
+                if (snap.empty) {
                     state.publicTenant = null;
                     return;
                 }
-                const tenantData = { id: tsnap.docs[0].id, ...tsnap.docs[0].data() };
-                state.publicTenant = tenantData;
+                
+                const tenant = { id: snap.docs[0].id, ...snap.docs[0].data() };
+                state.publicTenant = tenant;
 
-                const pq = query(collection(db, collections.products), where("tenantId", "==", tenantData.id), where("active", "==", true));
+                if (tenant.status === 'suspended') {
+                    state.publicProducts = [];
+                    return;
+                }
+
+                const pq = query(collection(db, collections.products), where("tenantId", "==", tenant.id));
                 const psnap = await getDocs(pq);
                 state.publicProducts = psnap.docs.map(d => ({ id: d.id, ...d.data() }))
                     .sort((a, b) => {
@@ -2876,391 +2875,116 @@
                         return (a.createdAt || 0) - (b.createdAt || 0);
                     });
             } catch (e) {
-                console.error("Erro ao carregar cardápio:", e);
+                console.error("Erro public data:", e);
                 state.publicTenant = null;
             }
         }
 
         window.renderPublicMenu = function(container) {
-            if (!state.publicTenant) {
-                container.innerHTML = `
-                    <div class="min-h-screen flex items-center justify-center bg-gray-50 fade-in p-4">
-                        <div class="text-center bg-white p-12 rounded-3xl shadow-xl max-w-sm w-full border border-gray-100">
-                            <div class="w-20 h-20 bg-red-100 text-red-500 rounded-full flex items-center justify-center text-4xl mx-auto mb-6"><i class="fas fa-store-slash"></i></div>
-                            <h2 class="text-2xl font-black text-gray-800 mb-2">Ops!</h2>
-                            <p class="text-gray-500 font-medium">Restaurante não encontrado ou indisponível.</p>
-                            <button onclick="window.location.hash='#/'" class="mt-8 text-brand-600 font-bold hover:underline">Voltar para o início</button>
-                        </div>
-                    </div>`;
-                return;
-            }
-
             const t = state.publicTenant;
-            const primaryColor = t.settings?.primaryColor || '#ef4444';
-            const isSuspended = t.status === 'suspended';
-            
-            if (isSuspended) {
-                container.innerHTML = `
-                    <div class="min-h-screen flex items-center justify-center bg-gray-50 fade-in p-4 relative overflow-hidden">
-                        <div class="absolute inset-0 bg-red-600/5 backdrop-blur-sm z-0"></div>
-                        <div class="text-center bg-white p-10 rounded-3xl shadow-2xl max-w-md w-full border border-red-100 z-10 relative">
-                            <div class="w-24 h-24 bg-red-100 text-red-600 rounded-full flex items-center justify-center text-5xl mx-auto mb-6 shadow-inner"><i class="fas fa-exclamation-triangle"></i></div>
-                            <h2 class="text-3xl font-black text-gray-900 mb-3">Cardápio Indisponível</h2>
-                            <p class="text-gray-500 font-medium text-base mb-8">O sistema deste estabelecimento encontra-se temporariamente suspenso.</p>
-                            <div class="p-4 bg-gray-50 rounded-2xl border border-gray-100">
-                                <p class="text-xs text-gray-400 font-bold uppercase tracking-wider mb-2">Administrador da Loja:</p>
-                                <p class="text-sm text-gray-700">Acesse seu <a href="#/login" class="text-red-600 font-bold hover:underline">Painel de Controle</a> para regularizar a assinatura.</p>
-                            </div>
-                        </div>
-                    </div>`;
+            if (!t) {
+                container.innerHTML = `<div class="min-h-screen flex items-center justify-center flex-col gap-4 fade-in p-6 text-center"><div class="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center text-2xl"><i class="fas fa-search"></i></div><h2 class="text-2xl font-bold">Restaurante não encontrado</h2><button onclick="window.location.hash='#/'" class="mt-2 text-brand-500 font-bold hover:underline">Voltar ao início</button></div>`;
                 return;
             }
 
-            const isOpen = t.settings?.open !== false;
-            
-            const coverStyle = t.settings?.coverImage ? `background-image: url('${t.settings.coverImage}');` : `background-color: ${primaryColor};`;
-            const profileHtml = t.settings?.profileImage ? `<img src="${t.settings.profileImage}" class="w-full h-full object-cover">` : `<span class="text-3xl font-black text-white">${t.name.charAt(0).toUpperCase()}</span>`;
-            const profileBg = t.settings?.profileImage ? 'bg-white' : `bg-gray-800`;
-
-            const renderProductCard = (p) => {
-                const imgStyle = p.image ? `background-image: url('${p.image}');` : `background-color: #f3f4f6;`;
-                return `
-                    <div class="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden flex flex-col hover:shadow-lg transition-all transform hover:-translate-y-1 group">
-                        <div class="h-48 product-image-mobile w-full bg-cover bg-center relative" style="${imgStyle}">
-                            ${!p.image ? `<div class="absolute inset-0 flex items-center justify-center text-gray-300"><i class="fas fa-camera text-4xl"></i></div>` : ''}
-                            <div class="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-10 transition-all"></div>
+            if (t.status === 'suspended') {
+                container.innerHTML = `
+                    <div class="min-h-screen flex items-center justify-center flex-col gap-6 fade-in p-6 text-center bg-gray-50">
+                        <div class="w-20 h-20 bg-orange-100 text-orange-500 rounded-full flex items-center justify-center text-3xl shadow-inner">
+                            <i class="fas fa-lock"></i>
                         </div>
-                        <div class="p-5 flex-grow flex flex-col justify-between">
-                            <div>
-                                <h3 class="font-bold text-gray-800 text-lg mb-1.5 leading-tight">${p.name}</h3>
-                                ${p.description ? `<p class="text-gray-500 text-sm line-clamp-2 mb-3 leading-snug">${p.description}</p>` : ''}
+                        <h2 class="text-2xl font-black text-gray-800">Cardápio Indisponível</h2>
+                        <p class="text-gray-500 max-w-sm text-sm">Este estabelecimento está temporariamente indisponível no momento.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            const isCartEmpty = state.cart.length === 0;
+            const cartTotal = state.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+            const coverImage = t.settings?.coverImage || 'https://placehold.co/800x300/ef4444/ffffff?text=Capa+do+Restaurante';
+            const profileImage = t.settings?.profileImage || 'https://placehold.co/150x150/ffffff/ef4444?text=Logo';
+
+            container.innerHTML = `
+                <div class="min-h-screen bg-gray-50 pb-24 fade-in">
+                    <div class="h-48 sm:h-64 md:h-72 w-full bg-cover bg-center relative" style="background-image: url('${coverImage}')">
+                        <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent"></div>
+                        <div class="absolute bottom-0 left-0 w-full p-4 sm:p-6 md:p-8 flex items-end gap-4 sm:gap-6 max-w-5xl mx-auto translate-y-4 sm:translate-y-8">
+                            <div class="w-20 h-20 sm:w-28 sm:h-28 md:w-32 md:h-32 rounded-2xl bg-white p-1 sm:p-1.5 shadow-xl flex-shrink-0">
+                                <div class="w-full h-full rounded-xl bg-cover bg-center" style="background-image: url('${profileImage}')"></div>
                             </div>
-                            <div class="flex items-center justify-between mt-4">
-                                <span class="font-black text-xl text-gray-900">${p.price.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</span>
-                                <button onclick="addToCart('${p.id}')" class="w-10 h-10 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-800 flex items-center justify-center transition shadow-sm" ${!isOpen ? 'disabled opacity-50 cursor-not-allowed' : ''}>
-                                    <i class="fas fa-plus"></i>
+                            <div class="text-white pb-4 sm:pb-8 flex-grow">
+                                <h1 class="text-2xl sm:text-3xl md:text-4xl font-black tracking-tight leading-none mb-1 sm:mb-2 shadow-sm">${t.name}</h1>
+                                <div class="flex flex-wrap items-center gap-2 sm:gap-3 text-xs sm:text-sm">
+                                    <span class="inline-flex items-center gap-1.5 bg-green-500/20 text-green-300 backdrop-blur-md px-2.5 py-1 rounded-full font-bold border border-green-400/30">
+                                        <span class="relative flex h-2 w-2"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span><span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span></span>
+                                        Aberto Agora
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="max-w-5xl mx-auto px-4 mt-12 sm:mt-16">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+                            ${state.publicProducts.map(p => `
+                                <div class="bg-white rounded-3xl overflow-hidden shadow-sm border border-gray-100 hover:shadow-lg transition transform hover:-translate-y-1 group flex flex-col h-full">
+                                    <div class="h-40 sm:h-48 w-full bg-cover bg-center product-image-mobile relative" style="background-image: url('${p.image || 'https://placehold.co/400x300/eeeeee/999999?text=Sem+Foto'}')">
+                                        <div class="absolute top-3 right-3 bg-white/90 backdrop-blur px-3 py-1.5 rounded-full font-black text-brand-600 shadow-sm text-sm">
+                                            ${p.price.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}
+                                        </div>
+                                    </div>
+                                    <div class="p-4 sm:p-5 flex flex-col flex-grow">
+                                        <h3 class="font-bold text-gray-800 text-lg mb-1 leading-tight group-hover:text-brand-600 transition">${p.name}</h3>
+                                        <p class="text-gray-500 text-xs sm:text-sm mb-4 line-clamp-2 flex-grow">${p.description || ''}</p>
+                                        <button onclick="addToCart('${p.id}')" class="w-full bg-gray-50 hover:bg-brand-500 text-gray-700 hover:text-white font-bold py-2.5 rounded-xl transition flex items-center justify-center gap-2 border border-gray-200 hover:border-brand-500 group-hover:bg-brand-50 group-hover:text-brand-600 group-hover:border-brand-200">
+                                            <i class="fas fa-plus text-sm"></i> Adicionar ao Pedido
+                                        </button>
+                                    </div>
+                                </div>
+                            `).join('')}
+                            ${state.publicProducts.length === 0 ? `<div class="col-span-full py-20 text-center text-gray-400 font-medium">Nenhum produto cadastrado no momento.</div>` : ''}
+                        </div>
+                    </div>
+
+                    ${!isCartEmpty ? `
+                        <div class="fixed bottom-0 left-0 w-full p-4 glass-panel border-t border-gray-200 z-40 transform translate-y-0 transition">
+                            <div class="max-w-5xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-4">
+                                <div class="flex items-center gap-4 w-full sm:w-auto">
+                                    <div class="w-12 h-12 bg-brand-100 text-brand-600 rounded-2xl flex items-center justify-center text-xl font-black relative shrink-0">
+                                        <i class="fas fa-shopping-bag"></i>
+                                        <span class="absolute -top-2 -right-2 bg-red-500 text-white w-6 h-6 rounded-full text-xs flex items-center justify-center border-2 border-white">${state.cart.reduce((s, i) => s + i.quantity, 0)}</span>
+                                    </div>
+                                    <div>
+                                        <p class="text-xs text-gray-500 font-bold uppercase tracking-wider">Total do Pedido</p>
+                                        <p class="text-2xl font-black text-gray-900 leading-none">${cartTotal.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</p>
+                                    </div>
+                                </div>
+                                <button onclick="window.location.hash='#/checkout'" class="w-full sm:w-auto bg-brand-500 text-white px-8 py-3.5 rounded-xl font-bold shadow-lg shadow-brand-500/30 hover:bg-brand-600 transition flex items-center justify-center gap-2 text-lg">
+                                    Finalizar Pedido <i class="fas fa-arrow-right"></i>
                                 </button>
                             </div>
                         </div>
-                    </div>
-                `;
-            };
-
-            container.innerHTML = `
-                <div class="min-h-screen bg-gray-50 pb-32 fade-in" style="--brand: ${primaryColor}">
-                    <div class="h-64 sm:h-80 w-full bg-cover bg-center relative" style="${coverStyle}">
-                        <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent"></div>
-                    </div>
-                    
-                    <div class="max-w-5xl mx-auto px-4 sm:px-6 relative -mt-20">
-                        <div class="bg-white rounded-3xl shadow-xl p-6 sm:p-8 flex flex-col sm:flex-row items-center sm:items-start gap-6 border border-gray-100">
-                            <div class="w-32 h-32 rounded-full border-4 border-white shadow-lg overflow-hidden flex-shrink-0 ${profileBg} flex items-center justify-center shrink-0 -mt-16 sm:mt-0 z-10 relative bg-white">
-                                ${profileHtml}
-                            </div>
-                            
-                            <div class="text-center sm:text-left flex-grow">
-                                <h1 class="text-3xl font-black text-gray-900 mb-2">${t.name}</h1>
-                                <div class="flex flex-wrap items-center justify-center sm:justify-start gap-3 mb-4">
-                                    ${isOpen ? 
-                                        `<span class="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-black uppercase tracking-wide border border-green-200 flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span> Aberto Agora</span>` : 
-                                        `<span class="bg-red-100 text-red-700 px-3 py-1 rounded-full text-xs font-black uppercase tracking-wide border border-red-200 flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-red-500"></span> Fechado</span>`
-                                    }
-                                    ${t.settings?.minOrder ? `<span class="text-xs text-gray-500 font-medium bg-gray-100 px-3 py-1 rounded-full"><i class="fas fa-shopping-bag mr-1"></i>Mínimo: ${t.settings.minOrder.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</span>` : ''}
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div class="mt-12">
-                            <h2 class="text-2xl font-black text-gray-900 mb-6 flex items-center gap-2"><i class="fas fa-utensils text-[var(--brand)]"></i> Nosso Cardápio</h2>
-                            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                                ${state.publicProducts.map(renderProductCard).join('')}
-                                ${state.publicProducts.length === 0 ? `<div class="col-span-full py-16 text-center text-gray-400 font-medium">Nenhum produto cadastrado no momento.</div>` : ''}
-                            </div>
-                        </div>
-                    </div>
-
-                    ${isOpen && state.publicProducts.length > 0 ? `
-                    <div id="cart-float" class="fixed bottom-0 left-0 w-full p-4 transform translate-y-full transition-transform duration-300 z-40">
-                        <div class="max-w-5xl mx-auto">
-                            <button onclick="openCart()" class="w-full bg-gray-900 text-white rounded-2xl shadow-2xl p-4 flex items-center justify-between hover:bg-black transition group border border-gray-700">
-                                <div class="flex items-center gap-3">
-                                    <div class="w-10 h-10 bg-white/10 rounded-xl flex items-center justify-center text-xl group-hover:scale-110 transition-transform relative">
-                                        <i class="fas fa-shopping-basket"></i>
-                                        <span id="cart-count-badge" class="absolute -top-1 -right-1 bg-[var(--brand)] text-white text-[10px] font-black w-4 h-4 rounded-full flex items-center justify-center shadow-sm">0</span>
-                                    </div>
-                                    <span class="font-bold hidden sm:inline text-lg">Ver Sacola</span>
-                                </div>
-                                <div class="flex items-center gap-3">
-                                    <span id="cart-total-float" class="font-black text-xl">R$ 0,00</span>
-                                    <i class="fas fa-chevron-right text-gray-400 group-hover:text-white transition group-hover:translate-x-1"></i>
-                                </div>
-                            </button>
-                        </div>
-                    </div>
                     ` : ''}
                 </div>
             `;
-            updateCartUI();
         }
 
         window.addToCart = function(productId) {
             const product = state.publicProducts.find(p => p.id === productId);
             if (!product) return;
-            
-            const existingItem = state.cart.find(i => i.id === productId);
-            if (existingItem) {
-                existingItem.quantity++;
+            const existing = state.cart.find(i => i.id === productId);
+            if (existing) {
+                existing.quantity++;
             } else {
                 state.cart.push({ ...product, quantity: 1, obs: '' });
             }
-            
-            showToast(`${product.name} adicionado à sacola!`);
-            updateCartUI();
+            showToast('Produto adicionado!');
+            renderPublicMenu(document.getElementById('app'));
         }
 
-        window.updateCartUI = function() {
-            const floatBtn = document.getElementById('cart-float');
-            if (!floatBtn) return;
-            
-            const count = state.cart.reduce((sum, item) => sum + item.quantity, 0);
-            const total = state.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-            
-            if (count > 0) {
-                floatBtn.classList.remove('translate-y-full');
-                document.getElementById('cart-count-badge').innerText = count;
-                document.getElementById('cart-total-float').innerText = total.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'});
-            } else {
-                floatBtn.classList.add('translate-y-full');
-            }
-            
-            const modalContent = document.getElementById('cart-modal-content');
-            if (modalContent) {
-                renderCartContent(modalContent);
-            }
-        }
-
-        window.openCart = function() {
-            const primaryColor = state.publicTenant?.settings?.primaryColor || '#ef4444';
-            const html = `
-                <div class="fixed inset-0 z-50 flex justify-end overlay fade-in" style="--brand: ${primaryColor}">
-                    <div class="bg-gray-50 w-full max-w-md h-full shadow-2xl flex flex-col animate-[slideInRight_0.3s_ease-out]">
-                        <div class="p-6 bg-white border-b flex justify-between items-center shrink-0 shadow-sm z-10 relative">
-                            <h3 class="font-black text-gray-900 text-xl flex items-center gap-2">
-                                <i class="fas fa-shopping-basket text-[var(--brand)]"></i> Sua Sacola
-                            </h3>
-                            <button onclick="closeModal()" class="w-8 h-8 bg-gray-100 hover:bg-gray-200 rounded-full flex items-center justify-center text-gray-600 transition">
-                                <i class="fas fa-times"></i>
-                            </button>
-                        </div>
-                        <div id="cart-modal-content" class="flex-grow overflow-y-auto p-6 flex flex-col relative bg-gray-50">
-                            <!-- Injetado por renderCartContent -->
-                        </div>
-                    </div>
-                </div>
-                <style>@keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }</style>
-            `;
-            openModal(html);
-            renderCartContent(document.getElementById('cart-modal-content'));
-        }
-
-        function renderCartContent(container) {
-            const primaryColor = state.publicTenant?.settings?.primaryColor || '#ef4444';
-            if (state.cart.length === 0) {
-                container.innerHTML = `
-                    <div class="flex-grow flex flex-col items-center justify-center text-center text-gray-400 py-12">
-                        <div class="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center text-5xl mb-4"><i class="fas fa-shopping-basket text-gray-300"></i></div>
-                        <p class="font-bold text-gray-500 mb-2">Sua sacola está vazia</p>
-                        <p class="text-sm">Adicione produtos do cardápio para continuar.</p>
-                        <button onclick="closeModal()" class="mt-6 font-bold text-[var(--brand)] hover:underline">Voltar ao Cardápio</button>
-                    </div>
-                `;
-                return;
-            }
-
-            const total = state.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-            
-            container.innerHTML = `
-                <div class="flex-grow space-y-4 mb-8">
-                    ${state.cart.map((item, index) => `
-                        <div class="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex gap-4">
-                            ${item.image ? `<div class="w-16 h-16 rounded-xl bg-cover bg-center shrink-0 shadow-sm" style="background-image: url('${item.image}')"></div>` : ''}
-                            <div class="flex-grow min-w-0 flex flex-col justify-between">
-                                <div class="flex justify-between items-start gap-2 mb-2">
-                                    <h4 class="font-bold text-gray-800 leading-tight truncate">${item.name}</h4>
-                                    <button onclick="removeFromCart(${index})" class="text-gray-300 hover:text-red-500 transition px-1"><i class="fas fa-trash-alt"></i></button>
-                                </div>
-                                <div class="flex justify-between items-end">
-                                    <div class="flex items-center gap-3 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1">
-                                        <button onclick="updateCartQuantity(${index}, -1)" class="text-gray-500 hover:text-[var(--brand)] font-bold px-1 transition"><i class="fas fa-minus text-[10px]"></i></button>
-                                        <span class="font-black text-gray-800 text-sm w-4 text-center">${item.quantity}</span>
-                                        <button onclick="updateCartQuantity(${index}, 1)" class="text-gray-500 hover:text-[var(--brand)] font-bold px-1 transition"><i class="fas fa-plus text-[10px]"></i></button>
-                                    </div>
-                                    <span class="font-black text-[var(--brand)]">${(item.price * item.quantity).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</span>
-                                </div>
-                            </div>
-                        </div>
-                    `).join('')}
-                    
-                    <div class="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 mt-4">
-                        <label class="block text-xs font-bold text-gray-700 mb-2 flex items-center gap-1.5"><i class="fas fa-comment-alt text-gray-400"></i> Observações Gerais do Pedido</label>
-                        <textarea id="cart-obs" rows="2" placeholder="Ex: Tirar cebola, troco para 50..." class="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-[var(--brand)] focus:ring-1 focus:ring-[var(--brand)] transition text-sm resize-none">${state.cartObs || ''}</textarea>
-                    </div>
-                </div>
-                
-                <div class="bg-white p-6 rounded-t-3xl border-t border-gray-100 shadow-[0_-10px_40px_rgba(0,0,0,0.05)] mx--6 px-6 -mb-6 sticky bottom-0 z-20">
-                    <div class="flex justify-between items-center mb-6">
-                        <span class="text-gray-500 font-bold uppercase tracking-wider text-xs">Total do Pedido</span>
-                        <span class="text-3xl font-black text-gray-900">${total.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</span>
-                    </div>
-                    <button onclick="checkout()" class="w-full bg-gray-900 text-white font-black py-4 rounded-xl hover:bg-black transition shadow-xl flex justify-center items-center gap-2 text-lg">
-                        Continuar <i class="fas fa-arrow-right"></i>
-                    </button>
-                </div>
-            `;
-            
-            document.getElementById('cart-obs').addEventListener('input', (e) => {
-                state.cartObs = e.target.value;
-            });
-        }
-
-        window.updateCartQuantity = function(index, delta) {
-            const item = state.cart[index];
-            item.quantity += delta;
-            if (item.quantity <= 0) {
-                state.cart.splice(index, 1);
-            }
-            updateCartUI();
-        }
-
-        window.removeFromCart = function(index) {
-            state.cart.splice(index, 1);
-            updateCartUI();
-        }
-
-        window.checkout = function() {
-            const minOrder = state.publicTenant?.settings?.minOrder || 0;
-            const total = state.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-            
-            if (total < minOrder) {
-                showToast(`O valor mínimo para pedidos é de ${minOrder.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}`, 'error');
-                return;
-            }
-
-            const primaryColor = state.publicTenant?.settings?.primaryColor || '#ef4444';
-            
-            const html = `
-                <div class="fixed inset-0 z-50 flex justify-end overlay fade-in" style="--brand: ${primaryColor}">
-                    <div class="bg-gray-50 w-full max-w-md h-full shadow-2xl flex flex-col animate-[slideInRight_0.3s_ease-out]">
-                        <div class="p-6 bg-white border-b flex justify-between items-center shrink-0">
-                            <h3 class="font-black text-gray-900 text-lg flex items-center gap-2">
-                                <i class="fas fa-map-marker-alt text-[var(--brand)]"></i> Finalizar Pedido
-                            </h3>
-                            <button onclick="openCart()" class="w-8 h-8 bg-gray-100 hover:bg-gray-200 rounded-full flex items-center justify-center text-gray-600 transition">
-                                <i class="fas fa-arrow-left"></i>
-                            </button>
-                        </div>
-                        <div class="flex-grow overflow-y-auto p-6">
-                            <form id="checkout-form" class="space-y-5" onsubmit="submitOrder(event)">
-                                <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
-                                    <h4 class="font-black text-xs uppercase tracking-wider text-gray-500 mb-4 flex items-center gap-1.5"><i class="fas fa-user"></i> Seus Dados</h4>
-                                    <div class="space-y-4">
-                                        <div>
-                                            <label class="block text-xs font-bold text-gray-700 mb-1">Nome Completo</label>
-                                            <input type="text" id="cust-name" required placeholder="Como devemos lhe chamar?" class="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:bg-white focus:border-[var(--brand)] focus:ring-2 focus:ring-[var(--brand)] transition text-sm">
-                                        </div>
-                                        <div>
-                                            <label class="block text-xs font-bold text-gray-700 mb-1">WhatsApp</label>
-                                            <input type="tel" id="cust-phone" required placeholder="(11) 99999-9999" class="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:bg-white focus:border-[var(--brand)] focus:ring-2 focus:ring-[var(--brand)] transition text-sm">
-                                        </div>
-                                    </div>
-                                </div>
-                                
-                                <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
-                                    <h4 class="font-black text-xs uppercase tracking-wider text-gray-500 mb-4 flex items-center gap-1.5"><i class="fas fa-home"></i> Entrega</h4>
-                                    <div>
-                                        <label class="block text-xs font-bold text-gray-700 mb-1">Endereço Completo</label>
-                                        <textarea id="cust-address" required rows="3" placeholder="Rua, Número, Bairro, Complemento..." class="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:bg-white focus:border-[var(--brand)] focus:ring-2 focus:ring-[var(--brand)] transition text-sm resize-none"></textarea>
-                                    </div>
-                                </div>
-
-                                <button type="submit" id="btn-submit-order" class="w-full bg-[var(--brand)] text-white font-black py-4 rounded-xl hover:opacity-90 transition shadow-xl flex justify-center items-center gap-2 text-lg mt-8">
-                                    <i class="fab fa-whatsapp"></i> Enviar Pedido
-                                </button>
-                            </form>
-                        </div>
-                    </div>
-                </div>
-            `;
-            openModal(html);
-        }
-
-        window.submitOrder = async function(e) {
-            e.preventDefault();
-            const btn = document.getElementById('btn-submit-order');
-            btn.disabled = true; btn.innerHTML = '<div class="loader w-5 h-5 border-2 border-white border-t-transparent mx-auto"></div>';
-
-            const name = document.getElementById('cust-name').value;
-            const phone = document.getElementById('cust-phone').value;
-            const address = document.getElementById('cust-address').value;
-            const obs = state.cartObs || '';
-            const total = state.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-
-            const order = {
-                tenantId: state.publicTenant.id,
-                customer: { name, phone, address },
-                items: state.cart.map(i => ({ name: i.name, price: i.price, quantity: i.quantity, id: i.id })),
-                observations: obs,
-                total: total,
-                status: 'novo',
-                createdAt: Date.now(),
-                history: []
-            };
-
-            try {
-                await setDoc(doc(collection(db, collections.orders)), order);
-                
-                state.cart = [];
-                state.cartObs = '';
-                updateCartUI();
-                
-                let wppMsg = `*NOVO PEDIDO - ${state.publicTenant.name}*\n\n`;
-                wppMsg += `*Cliente:* ${name}\n*Contato:* ${phone}\n*Endereço:* ${address}\n\n*Itens:*\n`;
-                order.items.forEach(i => {
-                    wppMsg += `${i.quantity}x ${i.name} - ${(i.price * i.quantity).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}\n`;
-                });
-                if(obs) wppMsg += `\n*Obs:* ${obs}\n`;
-                wppMsg += `\n*Total:* ${total.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}`;
-
-                const tenantPhone = state.publicTenant.phone.replace(/[^0-9]/g, '');
-                
-                closeModal();
-                
-                openModal(`
-                    <div class="fixed inset-0 z-50 flex items-center justify-center p-4 overlay fade-in">
-                        <div class="bg-white rounded-3xl shadow-2xl p-8 text-center max-w-sm w-full">
-                            <div class="w-24 h-24 bg-green-100 text-green-500 rounded-full flex items-center justify-center text-5xl mx-auto mb-6 shadow-inner"><i class="fas fa-check"></i></div>
-                            <h2 class="text-2xl font-black text-gray-900 mb-2">Pedido Recebido!</h2>
-                            <p class="text-gray-500 mb-6 font-medium text-sm">Seu pedido foi registrado no sistema. Envie também pelo WhatsApp para confirmar o preparo.</p>
-                            <a href="https://wa.me/55${tenantPhone}?text=${encodeURIComponent(wppMsg)}" target="_blank" onclick="closeModal()" class="w-full bg-green-500 hover:bg-green-600 text-white font-black py-4 rounded-xl shadow-xl shadow-green-500/30 transition flex items-center justify-center gap-2 mb-3">
-                                <i class="fab fa-whatsapp text-xl"></i> Enviar WhatsApp
-                            </a>
-                            <button onclick="closeModal()" class="text-gray-400 font-bold text-sm hover:text-gray-600">Fechar</button>
-                        </div>
-                    </div>
-                `);
-
-            } catch (err) {
-                showToast('Erro ao processar pedido.', 'error');
-                btn.disabled = false; btn.innerHTML = 'Enviar Pedido';
-            }
-        }
-
-        document.addEventListener('DOMContentLoaded', () => {
-            setupRouter();
-            initializeAppAuth();
-        });
-
+        initializeAppAuth();
+        setupRouter();
     </script>
 </body>
 </html>
-```eof
