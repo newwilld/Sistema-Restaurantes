@@ -594,155 +594,67 @@
             }
         }
 
-       window.doLogout = async function() {
-    await signOut(auth);
-    state.currentUser = null;
-    state.currentTenant = null;
-    state.isSuperAdmin = false;
-    
-    // Limpa os ouvintes de tempo real ao sair
-    if (window.unsubSuperAdminTenants) {
-        window.unsubSuperAdminTenants();
-        window.unsubSuperAdminTenants = null;
-    }
-    if (window.unsubSuperAdminTenantDeletions) {
-        window.unsubSuperAdminTenantDeletions();
-        window.unsubSuperAdminTenantDeletions = null;
-    }
-    if (window.unsubSuperAdminNotifs) {
-        window.unsubSuperAdminNotifs();
-        window.unsubSuperAdminNotifs = null;
-    }
-    
-    window.location.hash = '#/';
-}
-
-        window.unsubSuperAdminTenants = null;
-
-        async function loadSuperAdminData() {async function loadSuperAdminData() {
-    if (!state.isSuperAdmin) return;
-    
-    // Carrega lojistas também com ouvinte em tempo real
-    const tenantsPromise = new Promise((resolve) => {
-        if (window.unsubSuperAdminTenants) {
-            resolve();
-            return;
-        }
-        window.unsubSuperAdminTenants = onSnapshot(collection(db, collections.tenants), (snap) => {
-            state.superAdminTenants = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        window.doLogout = async function() {
+            await signOut(auth);
+            state.currentUser = null;
+            state.currentTenant = null;
+            state.isSuperAdmin = false;
             
-            if (window.location.hash.startsWith('#/superadmin') && document.getElementById('superadmin-content')) {
-                const route = window.location.hash.split('/')[2] || 'dashboard';
-                document.getElementById('superadmin-content').innerHTML = getSuperAdminContent(route);
+            // Limpa os ouvintes de tempo real ao sair
+            if (window.unsubSuperAdminTenants) {
+                window.unsubSuperAdminTenants();
+                window.unsubSuperAdminTenants = null;
             }
-            resolve();
-        }, (err) => {
-            console.warn("Erro listener tenants:", err);
-            resolve();
-        });
-    });
-
-    // CORREÇÃO: Listener para detectar quando um tenant é REMOVIDO
-    const deletionsPromise = new Promise((resolve) => {
-        if (window.unsubSuperAdminTenantDeletions) {
-            resolve();
-            return;
+            if (window.unsubSuperAdminNotifs) {
+                window.unsubSuperAdminNotifs();
+                window.unsubSuperAdminNotifs = null;
+            }
+            
+            window.location.hash = '#/';
         }
-        window.unsubSuperAdminTenantDeletions = onSnapshot(collection(db, collections.tenants), (snap) => {
-            // Verifica se algum tenant foi removido comparando com o estado atual
-            const currentIds = new Set(snap.docs.map(d => d.id));
-            const existingIds = new Set(state.superAdminTenants.map(t => t.id));
+
+        window.unsubSuperAdminTenants = null;
+
+        async function loadSuperAdminData() {
+            if (!state.isSuperAdmin) return;
             
-            // Encontra os IDs que foram removidos
-            const removedIds = [...existingIds].filter(id => !currentIds.has(id));
-            
-            if (removedIds.length > 0) {
-                console.log("Tenants removidos detectados:", removedIds);
-                
-                // Remove do estado local
-                state.superAdminTenants = state.superAdminTenants.filter(t => !removedIds.includes(t.id));
-                
-                // Remove produtos e pedidos associados
-                removedIds.forEach(async (tenantId) => {
-                    await cleanupTenantData(tenantId);
-                });
-                
-                // Atualiza a interface
-                if (window.location.hash.startsWith('#/superadmin') && document.getElementById('superadmin-content')) {
-                    const route = window.location.hash.split('/')[2] || 'dashboard';
-                    document.getElementById('superadmin-content').innerHTML = getSuperAdminContent(route);
+            // Carrega lojistas também com ouvinte em tempo real
+            const tenantsPromise = new Promise((resolve) => {
+                if (window.unsubSuperAdminTenants) {
+                    resolve();
+                    return;
                 }
-                
-                showToast('Cliente removido do sistema!', 'error');
+                window.unsubSuperAdminTenants = onSnapshot(collection(db, collections.tenants), (snap) => {
+                    state.superAdminTenants = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                    
+                    if (window.location.hash.startsWith('#/superadmin') && document.getElementById('superadmin-content')) {
+                        const route = window.location.hash.split('/')[2] || 'dashboard';
+                        document.getElementById('superadmin-content').innerHTML = getSuperAdminContent(route);
+                    }
+                    resolve();
+                }, (err) => {
+                    console.warn("Erro listener tenants:", err);
+                    resolve();
+                });
+            });
+
+            await tenantsPromise;
+            
+            // CORREÇÃO: Carrega notificações com tratamento de erro
+            try {
+                await loadSuperAdminNotifications();
+            } catch (err) {
+                console.warn("Aviso: Notificações não carregadas:", err);
             }
             
-            resolve();
-        }, (err) => {
-            console.warn("Erro listener deleções:", err);
-            resolve();
-        });
-    });
+            await checkPlanExpirations(); 
+            
+            const contentDiv = document.getElementById('superadmin-content');
+            if (contentDiv) {
+                contentDiv.innerHTML = getSuperAdminContent(window.location.hash.split('/')[2] || 'dashboard');
+            }
+        }
 
-    await Promise.all([tenantsPromise, deletionsPromise]);
-    
-    // CORREÇÃO: Carrega notificações com tratamento de erro
-    try {
-        await loadSuperAdminNotifications();
-    } catch (err) {
-        console.warn("Aviso: Notificações não carregadas:", err);
-    }
-    
-    await checkPlanExpirations(); 
-    
-    const contentDiv = document.getElementById('superadmin-content');
-    if (contentDiv) {
-        contentDiv.innerHTML = getSuperAdminContent(window.location.hash.split('/')[2] || 'dashboard');
-    }
-}
-        // Função para limpar dados de um tenant removido
-async function cleanupTenantData(tenantId) {
-    console.log("Limpando dados do tenant removido:", tenantId);
-    
-    try {
-        // Remove produtos do tenant
-        const productsQuery = query(collection(db, collections.products), where("tenantId", "==", tenantId));
-        const productsSnap = await getDocs(productsQuery);
-        const productsBatch = writeBatch(db);
-        productsSnap.docs.forEach(doc => {
-            productsBatch.delete(doc.ref);
-        });
-        
-        // Remove pedidos do tenant
-        const ordersQuery = query(collection(db, collections.orders), where("tenantId", "==", tenantId));
-        const ordersSnap = await getDocs(ordersQuery);
-        const ordersBatch = writeBatch(db);
-        ordersSnap.docs.forEach(doc => {
-            ordersBatch.delete(doc.ref);
-        });
-        
-        // Remove notificações do tenant
-        const notifsQuery = query(collection(db, collections.notifications), where("tenantId", "==", tenantId));
-        const notifsSnap = await getDocs(notifsQuery);
-        const notifsBatch = writeBatch(db);
-        notifsSnap.docs.forEach(doc => {
-            notifsBatch.delete(doc.ref);
-        });
-        
-        // Executa os batches
-        await Promise.all([
-            productsSnap.docs.length > 0 ? productsBatch.commit() : Promise.resolve(),
-            ordersSnap.docs.length > 0 ? ordersBatch.commit() : Promise.resolve(),
-            notifsSnap.docs.length > 0 ? notifsBatch.commit() : Promise.resolve()
-        ]);
-        
-        // Remove do estado local
-        state.superAdminTenants = state.superAdminTenants.filter(t => t.id !== tenantId);
-        
-        console.log("Dados do tenant limpos com sucesso:", tenantId);
-    } catch (err) {
-        console.error("Erro ao limpar dados do tenant:", err);
-    }
-}
         async function checkPlanExpirations() {
             if (!state.isSuperAdmin) return;
             const batch = writeBatch(db);
@@ -1154,17 +1066,12 @@ async function cleanupTenantData(tenantId) {
                                     </div>
                                 </div>
 
-                            <div class="mt-6 flex gap-3 pt-2">
-    <button type="button" onclick="closeModal()" class="flex-1 py-3 rounded-xl bg-gray-100 text-gray-600 font-bold hover:bg-gray-200 transition text-sm">Cancelar</button>
-    <button type="submit" id="btn-save-tenant-edits" class="flex-1 py-3 rounded-xl bg-purple-600 text-white font-bold hover:bg-purple-700 transition shadow-lg shadow-purple-600/30 text-sm flex items-center justify-center gap-1.5">
-        <i class="fas fa-save"></i> Salvar Alterações
-    </button>
-</div>
-<div class="mt-3">
-    <button type="button" onclick="deleteTenantCompletely('${tenant.id}')" class="w-full py-3 rounded-xl bg-red-50 text-red-600 font-bold hover:bg-red-100 transition text-sm flex items-center justify-center gap-1.5 border border-red-200">
-        <i class="fas fa-trash-alt"></i> Excluir Cliente Permanentemente
-    </button>
-</div>
+                                <div class="mt-6 flex gap-3 pt-2">
+                                    <button type="button" onclick="closeModal()" class="flex-1 py-3 rounded-xl bg-gray-100 text-gray-600 font-bold hover:bg-gray-200 transition text-sm">Cancelar</button>
+                                    <button type="submit" id="btn-save-tenant-edits" class="flex-1 py-3 rounded-xl bg-purple-600 text-white font-bold hover:bg-purple-700 transition shadow-lg shadow-purple-600/30 text-sm flex items-center justify-center gap-1.5">
+                                        <i class="fas fa-save"></i> Salvar Alterações
+                                    </button>
+                                </div>
                             </form>
                         </div>
                     </div>
@@ -1172,44 +1079,7 @@ async function cleanupTenantData(tenantId) {
             `;
             openModal(html);
         };
-window.deleteTenantCompletely = async function(tenantId) {
-    const tenant = state.superAdminTenants.find(t => t.id === tenantId);
-    if (!tenant) return;
-    
-    if (!confirm(`ATENÇÃO! Você está prestes a excluir PERMANENTEMENTE o cliente:\n\n${tenant.name}\n\nEsta ação irá:\n- Remover o cliente do sistema\n- Apagar todos os produtos\n- Apagar todos os pedidos\n- Apagar todo o histórico\n\nEsta ação NÃO PODE ser desfeita!\n\nDeseja continuar?`)) {
-        return;
-    }
-    
-    if (!confirm(`Confirmação final: Digite OK para excluir ${tenant.name}`)) {
-        return;
-    }
-    
-    try {
-        // Limpa todos os dados do tenant
-        await cleanupTenantData(tenantId);
-        
-        // Remove o documento do tenant
-        await deleteDoc(doc(db, collections.tenants, tenantId));
-        
-        // Remove do estado local
-        state.superAdminTenants = state.superAdminTenants.filter(t => t.id !== tenantId);
-        
-        showToast('Cliente excluído permanentemente!', 'error');
-        closeModal();
-        
-        // Recarrega os dados
-        await loadSuperAdminData();
-        
-        // Atualiza a interface
-        if (window.location.hash.startsWith('#/superadmin') && document.getElementById('superadmin-content')) {
-            const route = window.location.hash.split('/')[2] || 'dashboard';
-            document.getElementById('superadmin-content').innerHTML = getSuperAdminContent(route);
-        }
-    } catch (err) {
-        console.error("Erro ao excluir cliente:", err);
-        showToast("Erro ao excluir cliente: " + err.message, "error");
-    }
-};
+
         window.togglePasswordVisibility = function(inputId) {
             const input = document.getElementById(inputId);
             if (input.type === 'password') {
