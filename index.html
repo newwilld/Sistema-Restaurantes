@@ -55,6 +55,21 @@
         .sortable-chosen { box-shadow: 0 12px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1); }
         .sortable-drag { cursor: grabbing !important; opacity: 0.95; transform: rotate(1deg); }
         .drag-handle { touch-action: none; user-select: none; -webkit-user-select: none; }
+
+        .status-card {
+            animation: statusPulse 2s ease-in-out infinite;
+        }
+        @keyframes statusPulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.02); }
+        }
+        .status-icon {
+            animation: iconBounce 1.5s ease-in-out infinite;
+        }
+        @keyframes iconBounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-8px); }
+        }
     </style>
 </head>
 <body class="text-gray-800 antialiased overflow-x-hidden">
@@ -117,7 +132,11 @@
             superAdminNotifications: [],
             
             isAppLoaded: false,
-            isNavigating: false
+            isNavigating: false,
+            
+            // Estado para o pedido do cliente
+            currentOrder: null,
+            orderStatus: null // 'sent', 'accepted', 'refused'
         };
 
         function generateId() {
@@ -147,7 +166,6 @@
             document.getElementById('modal-container').innerHTML = '';
         }
 
-        // Função otimizada para navegação após login/cadastro
         async function navigateToDashboard(user, isSuperAdmin, tenantData) {
             if (state.isNavigating) return;
             state.isNavigating = true;
@@ -170,11 +188,9 @@
                     await loadSuperAdminNotifications();
                 }
 
-                // Forçar a atualização da UI imediatamente
                 const targetHash = isSuperAdmin ? '#/superadmin' : '#/admin';
                 window.location.hash = targetHash;
                 
-                // Forçar o roteamento imediato
                 setTimeout(() => {
                     state.isNavigating = false;
                     handleRoute();
@@ -233,6 +249,9 @@
                 } else {
                     window.location.hash = '#/';
                 }
+            }
+            else if (hash.startsWith('#/status-pedido')) {
+                renderOrderStatus(appDiv);
             }
             else {
                 window.location.hash = '#/';
@@ -547,7 +566,6 @@
                         console.warn("Aviso: Não foi possível criar notificação para admin:", notifErr);
                     }
 
-                    // NAVEGAÇÃO OTIMIZADA APÓS CADASTRO
                     await navigateToDashboard(userCreds.user, false, tenantData);
                     showToast('Restaurante criado com sucesso! Bem-vindo(a).');
 
@@ -559,7 +577,6 @@
                     
                     const isSuperAdmin = (email === 'willdalves1@gmail.com');
                     
-                    // NAVEGAÇÃO OTIMIZADA APÓS LOGIN
                     if (!isSuperAdmin) {
                         const docRef = doc(db, collections.tenants, userCreds.user.uid);
                         const docSnap = await getDoc(docRef);
@@ -1632,7 +1649,6 @@
             }
         }
 
-        // Função para alternar o status do cardápio (Aberto/Fechado)
         window.toggleRestaurantStatus = async function() {
             if (!state.currentTenant) return;
             
@@ -3112,6 +3128,129 @@
             openModal(html);
         }
 
+        // ============================================================
+        // PÁGINA DE STATUS DO PEDIDO DO CLIENTE
+        // ============================================================
+        window.renderOrderStatus = function(container) {
+            const order = state.currentOrder;
+            const status = state.orderStatus || 'sent';
+            
+            let statusConfig = {
+                sent: {
+                    icon: 'fa-paper-plane',
+                    color: 'text-blue-500',
+                    bg: 'bg-blue-50',
+                    title: 'Pedido Enviado!',
+                    message: 'Seu pedido foi enviado para o restaurante. Aguarde a confirmação.',
+                    details: 'O restaurante está verificando a disponibilidade dos itens.'
+                },
+                accepted: {
+                    icon: 'fa-check-circle',
+                    color: 'text-green-500',
+                    bg: 'bg-green-50',
+                    title: 'Pedido Aceito!',
+                    message: 'Seu pedido foi aceito pelo restaurante e está sendo preparado.',
+                    details: 'Em breve seu pedido será entregue.'
+                },
+                refused: {
+                    icon: 'fa-times-circle',
+                    color: 'text-red-500',
+                    bg: 'bg-red-50',
+                    title: 'Pedido Recusado',
+                    message: 'Infelizmente seu pedido não pode ser atendido.',
+                    details: 'O restaurante está fechado ou algum item está indisponível no momento.'
+                }
+            };
+
+            const config = statusConfig[status] || statusConfig.sent;
+            
+            // Construir mensagem para WhatsApp
+            const buildWhatsAppMessage = () => {
+                if (!order) return '';
+                
+                let itemsList = order.items.map(item => 
+                    `${item.quantity}x ${item.name} - R$ ${(item.price * item.quantity).toFixed(2)}`
+                ).join('\n');
+                
+                let message = `🍔 *NOVO PEDIDO* 🍔\n\n`;
+                message += `👤 *Cliente:* ${order.customer?.name || 'Não informado'}\n`;
+                message += `📱 *WhatsApp:* ${order.customer?.phone || 'Não informado'}\n`;
+                message += `📍 *Endereço:* ${order.customer?.address || 'Não informado'}\n\n`;
+                message += `📋 *Itens do Pedido:*\n${itemsList}\n\n`;
+                message += `💰 *Total:* R$ ${order.total?.toFixed(2) || '0,00'}\n`;
+                if (order.observations) {
+                    message += `\n📝 *Observações:* ${order.observations}`;
+                }
+                message += `\n\n✅ Pedido enviado via WA Vendas`;
+                
+                return encodeURIComponent(message);
+            };
+
+            const whatsappUrl = state.publicTenant?.phone 
+                ? `https://wa.me/55${state.publicTenant.phone.replace(/[^0-9]/g, '')}?text=${buildWhatsAppMessage()}`
+                : '#';
+
+            container.innerHTML = `
+                <div class="min-h-screen flex items-center justify-center bg-gray-50 p-4 fade-in">
+                    <div class="bg-white p-8 md:p-12 rounded-3xl shadow-2xl w-full max-w-md border border-gray-100 relative overflow-hidden">
+                        <div class="absolute top-0 left-0 w-full h-2 bg-gradient-to-r ${status === 'accepted' ? 'from-green-500 to-green-400' : status === 'refused' ? 'from-red-500 to-red-400' : 'from-blue-500 to-blue-400'}"></div>
+                        
+                        <div class="text-center">
+                            <div class="status-card inline-flex items-center justify-center w-24 h-24 rounded-full ${config.bg} mb-6 shadow-inner">
+                                <i class="fas ${config.icon} text-5xl ${config.color} status-icon"></i>
+                            </div>
+                            
+                            <h2 class="text-2xl font-black text-gray-800 mb-2">${config.title}</h2>
+                            <p class="text-gray-600 font-medium mb-1">${config.message}</p>
+                            <p class="text-sm text-gray-400 mb-6">${config.details}</p>
+                            
+                            ${order ? `
+                                <div class="bg-gray-50 rounded-2xl p-4 text-left mb-6 border border-gray-100">
+                                    <h4 class="font-bold text-gray-700 text-sm mb-2">📋 Resumo do Pedido</h4>
+                                    ${order.items.map(item => `
+                                        <div class="flex justify-between text-sm py-1 border-b border-gray-100 last:border-0">
+                                            <span class="text-gray-600">${item.quantity}x ${item.name}</span>
+                                            <span class="font-semibold text-gray-800">R$ ${(item.price * item.quantity).toFixed(2)}</span>
+                                        </div>
+                                    `).join('')}
+                                    <div class="flex justify-between text-sm pt-2 font-bold">
+                                        <span>Total</span>
+                                        <span class="text-brand-600">R$ ${order.total?.toFixed(2) || '0,00'}</span>
+                                    </div>
+                                    ${order.observations ? `
+                                        <div class="mt-2 text-xs text-amber-600 bg-amber-50 p-2 rounded-xl">
+                                            <i class="fas fa-comment-alt mr-1"></i> ${order.observations}
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            ` : ''}
+                            
+                            <!-- Botão WhatsApp -->
+                            ${state.publicTenant?.phone ? `
+                                <a href="${whatsappUrl}" target="_blank" 
+                                   class="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3.5 px-4 rounded-xl shadow-lg shadow-green-500/30 transition flex items-center justify-center gap-2 mb-4">
+                                    <i class="fab fa-whatsapp text-xl"></i> 
+                                    Enviar Detalhes do Meu Pedido no WhatsApp
+                                </a>
+                            ` : `
+                                <div class="bg-yellow-50 border border-yellow-200 rounded-xl p-3 mb-4 text-sm text-yellow-700">
+                                    <i class="fas fa-exclamation-triangle mr-2"></i>
+                                    O restaurante ainda não cadastrou um WhatsApp para contato.
+                                </div>
+                            `}
+                            
+                            <button onclick="window.location.hash='#/cardapio/${state.publicTenant?.slug || ''}'" 
+                                    class="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 px-4 rounded-xl transition">
+                                <i class="fas fa-arrow-left mr-2"></i> Voltar ao Cardápio
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        };
+
+        // Sobrescrever o checkout para redirecionar para a página de status
+        const originalCheckout = window.checkout;
         window.checkout = async function(e) {
             e.preventDefault();
             if(state.cart.length === 0) return;
@@ -3145,25 +3284,25 @@
             };
 
             try {
-                await setDoc(doc(collection(db, collections.orders)), order);
+                const orderRef = doc(collection(db, collections.orders));
+                await setDoc(orderRef, order);
+                
+                // Salvar o pedido no estado para a página de status
+                state.currentOrder = { id: orderRef.id, ...order };
+                state.orderStatus = 'sent';
+                
+                // Limpar o carrinho
                 state.cart = [];
                 closeModal();
                 
-                openModal(`
-                    <div class="fixed inset-0 z-50 flex items-center justify-center p-4 overlay fade-in">
-                        <div class="bg-white rounded-3xl shadow-2xl p-8 text-center max-w-sm w-full">
-                            <div class="w-20 h-20 bg-green-100 text-green-500 rounded-full flex items-center justify-center text-4xl mx-auto mb-6"><i class="fas fa-check"></i></div>
-                            <h2 class="text-2xl font-black text-gray-800 mb-2">Pedido Enviado!</h2>
-                            <p class="text-gray-500 mb-6">O restaurante já recebeu o seu pedido. Em breve ele começará a ser preparado.</p>
-                            <button onclick="closeModal(); handleRoute();" class="w-full bg-gray-900 text-white font-bold py-3.5 rounded-xl">Fechar</button>
-                        </div>
-                    </div>
-                `);
+                // Redirecionar para a página de status do pedido
+                window.location.hash = '#/status-pedido';
+                
             } catch(err) {
                 showToast("Erro ao processar pedido: " + err.message, "error");
                 btn.disabled = false; btn.innerHTML = 'Finalizar Pedido';
             }
-        }
+        };
 
         window.onload = () => {
             setupRouter();
