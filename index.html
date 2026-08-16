@@ -198,6 +198,114 @@
             }
         }
 
+        // ==================== FUNÇÃO CORRIGIDA DE NOTIFICAÇÃO ====================
+        async function createAdminNotification(notificationData) {
+            try {
+                const notifRef = doc(collection(db, collections.adminNotifications));
+                await setDoc(notifRef, {
+                    ...notificationData,
+                    createdAt: Date.now(),
+                    read: false
+                });
+                
+                // Atualiza o estado local imediatamente se for super admin
+                if (state.isSuperAdmin) {
+                    state.superAdminNotifications.unshift({
+                        id: notifRef.id,
+                        ...notificationData,
+                        createdAt: Date.now(),
+                        read: false
+                    });
+                    
+                    // Atualiza a UI se estiver na tela de super admin
+                    if (window.location.hash.startsWith('#/superadmin')) {
+                        const route = window.location.hash.split('/')[2] || 'dashboard';
+                        const contentDiv = document.getElementById('superadmin-content');
+                        if (contentDiv) {
+                            contentDiv.innerHTML = getSuperAdminContent(route);
+                        }
+                        // Atualiza badges
+                        updateSuperAdminBadges();
+                    }
+                }
+                
+                console.log('✅ Notificação admin criada:', notificationData.title);
+            } catch (err) {
+                console.warn("Erro ao criar notificação admin:", err);
+            }
+        }
+
+        // ==================== FUNÇÃO PARA ATUALIZAR BADGES ====================
+        function updateSuperAdminBadges() {
+            const unreadCount = state.superAdminNotifications.filter(n => !n.read).length;
+            
+            // Atualiza badge no header
+            const headerBell = document.querySelector('header a[title="Notificações"]');
+            if (headerBell) {
+                const badgeHTML = unreadCount > 0 ? `<span class="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full ring-2 ring-white"></span>` : '';
+                headerBell.innerHTML = `<i class="fas fa-bell text-lg"></i>${badgeHTML}`;
+            }
+            
+            // Atualiza badge na sidebar
+            const sidebarLink = document.querySelector('aside nav a[href="#/superadmin/notificacoes"]');
+            if (sidebarLink) {
+                const badgeHTML = unreadCount > 0 ? `<span class="bg-red-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full animate-pulse">${unreadCount}</span>` : '';
+                sidebarLink.innerHTML = `<div class="flex items-center gap-3"><i class="fas fa-bell w-5"></i> Notificações</div>${badgeHTML}`;
+            }
+        }
+
+        // ==================== FUNÇÃO CORRIGIDA DE LOAD NOTIFICAÇÕES ====================
+        window.unsubSuperAdminNotifs = null;
+
+        async function loadSuperAdminNotifications() {
+            return new Promise((resolve) => {
+                // Previne múltiplos ouvintes simultâneos
+                if (window.unsubSuperAdminNotifs) {
+                    resolve();
+                    return;
+                }
+                try {
+                    const nq = query(collection(db, collections.adminNotifications), where("type", "==", "admin_master"));
+                    
+                    window.unsubSuperAdminNotifs = onSnapshot(nq, (nsnap) => {
+                        const oldCount = state.superAdminNotifications.length;
+                        
+                        state.superAdminNotifications = nsnap.docs.map(d => ({ 
+                            id: d.id, 
+                            ...d.data() 
+                        })).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+                        
+                        const newCount = state.superAdminNotifications.length;
+                        
+                        // Detecta novas notificações e exibe toast
+                        if (oldCount > 0 && newCount > oldCount) {
+                            const newNotif = state.superAdminNotifications[0];
+                            if (newNotif) {
+                                showToast(`📢 ${newNotif.title}: ${newNotif.message}`, 'success');
+                            }
+                        }
+                        
+                        // Atualiza a UI se estiver na tela de super admin
+                        if (window.location.hash.startsWith('#/superadmin') && document.getElementById('superadmin-content')) {
+                            const route = window.location.hash.split('/')[2] || 'dashboard';
+                            document.getElementById('superadmin-content').innerHTML = getSuperAdminContent(route);
+                            updateSuperAdminBadges();
+                        }
+                        
+                        resolve();
+                    }, (err) => {
+                        console.warn("Erro ao carregar notificações do admin:", err);
+                        state.superAdminNotifications = [];
+                        resolve();
+                    });
+                } catch (err) {
+                    console.warn(err);
+                    resolve();
+                }
+            });
+        }
+
+        // ==================== INICIALIZAÇÃO DA AUTENTICAÇÃO ====================
         async function initializeAppAuth() {
             onAuthStateChanged(auth, async (user) => {
                 state.currentUser = user;
@@ -217,6 +325,7 @@
                             console.error("Erro ao carregar perfil da loja:", e);
                         }
                     } else {
+                        // Carrega notificações imediatamente para super admin
                         await loadSuperAdminNotifications();
                     }
                 } else {
@@ -233,58 +342,7 @@
             });
         }
 
-        window.unsubSuperAdminNotifs = null;
-
-        async function loadSuperAdminNotifications() {
-            return new Promise((resolve) => {
-                // Previne múltiplos ouvintes simultâneos
-                if (window.unsubSuperAdminNotifs) {
-                    resolve();
-                    return;
-                }
-                try {
-                    const nq = query(collection(db, collections.adminNotifications), where("type", "==", "admin_master"));
-                    // Transforma em ouvinte tempo real
-                    window.unsubSuperAdminNotifs = onSnapshot(nq, (nsnap) => {
-                        const oldCount = state.superAdminNotifications.length;
-                        state.superAdminNotifications = nsnap.docs.map(d => ({ id: d.id, ...d.data() }))
-                            .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-                        
-                        const newCount = state.superAdminNotifications.length;
-                        
-                        if (window.location.hash.startsWith('#/superadmin') && document.getElementById('superadmin-content')) {
-                            const route = window.location.hash.split('/')[2] || 'dashboard';
-                            document.getElementById('superadmin-content').innerHTML = getSuperAdminContent(route);
-                            
-                            // Atualiza os emblemas visuais (badges) de notificação não lida
-                            const unreadCount = state.superAdminNotifications.filter(n => !n.read).length;
-                            
-                            const badgeHTML = unreadCount > 0 ? `<span class="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full ring-2 ring-white"></span>` : '';
-                            const headerBell = document.querySelector('header a[title="Notificações"]');
-                            if (headerBell) headerBell.innerHTML = `<i class="fas fa-bell text-lg"></i>${badgeHTML}`;
-                            
-                            const sidebarBadgeHTML = unreadCount > 0 ? `<span class="bg-red-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full animate-pulse">${unreadCount}</span>` : '';
-                            const sidebarLink = document.querySelector('aside nav a[href="#/superadmin/notificacoes"]');
-                            if (sidebarLink) sidebarLink.innerHTML = `<div class="flex items-center gap-3"><i class="fas fa-bell w-5"></i> Notificações</div>${sidebarBadgeHTML}`;
-                            
-                            // Emite alerta visual de nova notificação
-                            if (oldCount > 0 && newCount > oldCount) {
-                                showToast('Nova notificação recebida!', 'success');
-                            }
-                        }
-                        resolve();
-                    }, (err) => {
-                        console.warn("Erro ao carregar notificações do admin:", err);
-                        state.superAdminNotifications = [];
-                        resolve();
-                    });
-                } catch (err) {
-                    console.warn(err);
-                    resolve();
-                }
-            });
-        }
-
+        // ==================== LANDING PAGE ====================
         window.renderLanding = function(container) {
             container.innerHTML = `
                 <div class="min-h-screen flex flex-col bg-white fade-in">
@@ -347,6 +405,7 @@
             `;
         }
 
+        // ==================== AUTENTICAÇÃO ====================
         window.renderAuth = function(container) {
             const urlParams = new URLSearchParams(window.location.hash.split('?')[1]);
             const isRegister = urlParams.get('register') === 'true';
@@ -437,6 +496,7 @@
             `;
         }
 
+        // ==================== HANDLE AUTH SUBMIT CORRIGIDO ====================
         window.handleAuthSubmit = async function(event, isRegister, isAdmin) {
             event.preventDefault();
             const btn = document.getElementById('auth-btn');
@@ -478,21 +538,21 @@
 
                     await setDoc(doc(db, collections.tenants, userCreds.user.uid), tenantData);
 
+                    // ========== NOTIFICAÇÃO DE NOVO CLIENTE ==========
                     await createAdminNotification({
                         type: 'admin_master',
-                        title: 'Novo Cliente Cadastrado',
+                        title: '🆕 Novo Cliente Cadastrado',
                         message: `${name} cadastrou-se na plataforma`,
                         customerName: name,
                         customerEmail: email,
                         action: 'novo_cliente'
                     });
 
-                    // Otimização: Popula os dados imediatamente no state local para evitar atraso/travamento.
                     state.currentUser = userCreds.user;
                     state.currentTenant = { id: userCreds.user.uid, ...tenantData };
                     state.isSuperAdmin = false;
 
-                    showToast('Restaurante criado com sucesso! Bem-vindo(a).');
+                    showToast('✅ Restaurante criado com sucesso! Bem-vindo(a).');
                     window.location.hash = '#/admin';
 
                 } else {
@@ -501,7 +561,6 @@
                         throw new Error("Acesso administrativo negado.");
                     }
                     
-                    // Otimização: Popula e recupera os dados na mesma requisição para transição rápida.
                     state.currentUser = userCreds.user;
                     state.isSuperAdmin = (email === 'willdalves1@gmail.com');
                     
@@ -514,11 +573,11 @@
                             state.currentTenant = null;
                         }
                     } else {
+                        // Recarrega notificações para super admin
                         await loadSuperAdminNotifications();
                     }
 
-                    showToast('Acesso liberado.');
-                    // Força a navegação imediatamente
+                    showToast('✅ Acesso liberado.');
                     window.location.hash = state.isSuperAdmin ? '#/superadmin' : '#/admin';
                 }
             } catch (error) {
@@ -526,59 +585,19 @@
                 let msg = error.message;
                 if(error.code === 'auth/email-already-in-use') msg = "E-mail já cadastrado.";
                 if(error.code === 'auth/invalid-credential') msg = "E-mail ou senha incorretos.";
-                showToast(msg, 'error');
+                if(error.code === 'auth/too-many-requests') msg = "Muitas tentativas. Tente novamente mais tarde.";
+                showToast('❌ ' + msg, 'error');
                 btn.innerHTML = originalText;
                 btn.disabled = false;
             }
         }
 
-        async function createAdminNotification(notificationData) {
-            try {
-                const notifRef = doc(collection(db, collections.adminNotifications));
-                await setDoc(notifRef, {
-                    ...notificationData,
-                    createdAt: Date.now(),
-                    read: false
-                });
-                
-                if (state.isSuperAdmin) {
-                    state.superAdminNotifications.unshift({
-                        id: notifRef.id,
-                        ...notificationData,
-                        createdAt: Date.now(),
-                        read: false
-                    });
-                }
-            } catch (err) {
-                console.warn("Erro ao criar notificação admin:", err);
-            }
-        }
-
-        window.doLogout = async function() {
-            await signOut(auth);
-            state.currentUser = null;
-            state.currentTenant = null;
-            state.isSuperAdmin = false;
-            
-            // Limpa os ouvintes de tempo real ao sair
-            if (window.unsubSuperAdminTenants) {
-                window.unsubSuperAdminTenants();
-                window.unsubSuperAdminTenants = null;
-            }
-            if (window.unsubSuperAdminNotifs) {
-                window.unsubSuperAdminNotifs();
-                window.unsubSuperAdminNotifs = null;
-            }
-            
-            window.location.hash = '#/';
-        }
-
+        // ==================== SUPER ADMIN ====================
         window.unsubSuperAdminTenants = null;
 
         async function loadSuperAdminData() {
             if (!state.isSuperAdmin) return;
             
-            // Carrega lojistas também com ouvinte em tempo real
             const tenantsPromise = new Promise((resolve) => {
                 if (window.unsubSuperAdminTenants) {
                     resolve();
@@ -618,7 +637,6 @@
                 
                 const today = new Date();
                 today.setHours(0,0,0,0);
-                // Ajusta timezone para evitar bugs de virada de dia
                 const renewalParts = t.renewalDate.split('-');
                 const renewal = new Date(renewalParts[0], renewalParts[1] - 1, renewalParts[2]); 
                 
@@ -654,7 +672,7 @@
 
                     await createAdminNotification({
                         type: 'admin_master',
-                        title: 'Aviso de Vencimento',
+                        title: '⚠️ Aviso de Vencimento',
                         message: msg,
                         customerName: t.name,
                         action: 'vencimento'
@@ -665,6 +683,24 @@
             if (hasUpdates) {
                 await batch.commit();
             }
+        }
+
+        window.doLogout = async function() {
+            await signOut(auth);
+            state.currentUser = null;
+            state.currentTenant = null;
+            state.isSuperAdmin = false;
+            
+            if (window.unsubSuperAdminTenants) {
+                window.unsubSuperAdminTenants();
+                window.unsubSuperAdminTenants = null;
+            }
+            if (window.unsubSuperAdminNotifs) {
+                window.unsubSuperAdminNotifs();
+                window.unsubSuperAdminNotifs = null;
+            }
+            
+            window.location.hash = '#/';
         }
 
         window.renderSuperAdmin = function(container, hash) {
@@ -822,7 +858,7 @@
 
         window.markAllAdminNotificationsAsRead = async function() {
             state.superAdminNotifications.forEach(n => n.read = true);
-            showToast('Todas as notificações foram marcadas como lidas.');
+            showToast('✅ Todas as notificações foram marcadas como lidas.');
             
             try {
                 const batch = writeBatch(db);
@@ -836,7 +872,11 @@
                 console.warn(err);
             }
             
-            loadSuperAdminData();
+            updateSuperAdminBadges();
+            const contentDiv = document.getElementById('superadmin-content');
+            if (contentDiv) {
+                contentDiv.innerHTML = getSuperAdminContent('notificacoes');
+            }
         };
 
         function renderSuperAdminRestaurants() {
@@ -1085,7 +1125,6 @@
                     lastModified: Date.now()
                 };
 
-                // Remove a notificação de vencimento caso o admin renove o plano manualmente
                 if(oldTenant && oldTenant.renewalDate !== renewalDate) {
                     updatedPayload.lastNotif = null; 
                 }
@@ -1113,7 +1152,7 @@
                         
                         await createAdminNotification({
                             type: 'admin_master',
-                            title: changes.includes('senha') ? 'Senha Atualizada' : 'Email Atualizado',
+                            title: changes.includes('senha') ? '🔑 Senha Atualizada' : '📧 Email Atualizado',
                             message: message,
                             customerName: name,
                             customerEmail: email,
@@ -1130,7 +1169,7 @@
                         if (statusMsg) {
                             await createAdminNotification({
                                 type: 'admin_master',
-                                title: 'Status Alterado',
+                                title: '📊 Status Alterado',
                                 message: statusMsg,
                                 customerName: name,
                                 action: 'status_alterado'
@@ -1139,17 +1178,18 @@
                     }
                 }
 
-                showToast("Dados do lojista atualizados com sucesso!");
+                showToast("✅ Dados do lojista atualizados com sucesso!");
                 closeModal();
                 loadSuperAdminData();
             } catch (err) {
                 console.error("Erro ao salvar dados do lojista:", err);
-                showToast("Erro ao salvar: " + err.message, "error");
+                showToast("❌ Erro ao salvar: " + err.message, "error");
                 btn.disabled = false;
                 btn.innerHTML = '<i class="fas fa-save"></i> Salvar Alterações';
             }
         };
 
+        // ==================== CRIAÇÃO DE LOJISTA PELO ADMIN (CORRIGIDO) ====================
         window.openCreateTenantModal = function() {
             const d = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
             const defaultRenewal = d.toISOString().split('T')[0];
@@ -1254,25 +1294,27 @@
 
                 await signOutSecondary(secondaryAuth);
 
+                // ========== NOTIFICAÇÃO DE NOVO CLIENTE CRIADO PELO ADMIN ==========
                 await createAdminNotification({
                     type: 'admin_master',
-                    title: 'Novo Cliente Cadastrado',
+                    title: '🆕 Novo Cliente Cadastrado',
                     message: `${name} foi cadastrado na plataforma`,
                     customerName: name,
                     customerEmail: email,
                     action: 'novo_cliente'
                 });
 
-                showToast('Lojista criado com sucesso!');
+                showToast('✅ Lojista criado com sucesso!');
                 closeModal();
                 loadSuperAdminData();
             } catch (error) {
-                showToast('Erro: ' + error.message, 'error');
+                showToast('❌ Erro: ' + error.message, 'error');
                 btn.innerHTML = 'Criar Conta';
                 btn.disabled = false;
             }
         }
 
+        // ==================== ADMIN ====================
         let sortableInstance = null;
         window.initAdminSortable = function() {
             const container = document.getElementById('admin-products-list');
@@ -1335,10 +1377,10 @@
                     if (orderA !== orderB) return orderA - orderB;
                     return (a.createdAt || 0) - (b.createdAt || 0);
                 });
-                showToast('Ordem do cardápio salva com sucesso!');
+                showToast('✅ Ordem do cardápio salva com sucesso!');
             } catch (error) {
                 console.error("Erro ao salvar ordem dos produtos:", error);
-                showToast('Erro ao salvar nova ordem do cardápio.', 'error');
+                showToast('❌ Erro ao salvar nova ordem do cardápio.', 'error');
             }
         };
 
@@ -1429,7 +1471,6 @@
                         </div>
                     </aside>
                     <main class="flex-grow flex flex-col overflow-hidden relative">
-                        <!-- BANNER SISTEMA CONGELADO / SUSPENSO -->
                         ${tenant?.status === 'suspended' ? `
                             <div class="bg-red-600 text-white p-4 shrink-0 flex flex-col sm:flex-row items-center justify-between gap-4 z-20 shadow-md">
                                 <div class="flex items-center gap-3">
@@ -1464,7 +1505,6 @@
                             <div class="flex justify-center h-full items-center"><div class="loader w-8 h-8 border-4 border-gray-200 border-t-brand-500"></div></div>
                         </div>
                         
-                        <!-- Mobile Navigation -->
                         <div class="md:hidden bg-gray-900 text-white flex justify-around p-3 pb-safe border-t border-gray-800 shrink-0">
                              <a href="#/admin/dashboard" class="flex flex-col items-center gap-1 ${subRoute === 'dashboard' ? 'text-brand-500' : 'text-gray-400'}"><i class="fas fa-chart-pie text-xl"></i><span class="text-[10px] font-bold">Início</span></a>
                              <a href="#/admin/pedidos" class="flex flex-col items-center gap-1 ${subRoute === 'pedidos' ? 'text-brand-500' : 'text-gray-400'}"><i class="fas fa-receipt text-xl"></i><span class="text-[10px] font-bold">Pedidos</span></a>
@@ -1485,7 +1525,7 @@
         }
 
         window.openRenewalModal = function() {
-            const phoneNumber = "5511999999999"; // Número do admin master (substitua pelo real)
+            const phoneNumber = "5511999999999";
             const wppMessage = encodeURIComponent(`Olá, sou o restaurante ${state.currentTenant?.name} e gostaria de enviar o comprovante de pagamento para liberação do meu sistema.`);
             
             const html = `
@@ -1504,7 +1544,6 @@
                             </div>
                             
                             <div class="bg-gray-50 p-4 rounded-2xl border border-gray-200 inline-block mx-auto shadow-inner">
-                                <!-- Placeholder para QR Code Pix Real -->
                                 <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=00020126360014br.gov.bcb.pix0114+5511999999999520400005303986540599.905802BR5910WA VENDAS6009SAO PAULO62070503***6304" alt="QR Code Pix" class="w-48 h-48 mx-auto rounded-lg">
                             </div>
                             
@@ -1619,7 +1658,7 @@
 
         window.markAllNotificationsAsRead = async function() {
             state.adminNotifications.forEach(n => n.read = true);
-            showToast('Todas as notificações foram marcadas como lidas.');
+            showToast('✅ Todas as notificações foram marcadas como lidas.');
             try {
                 const batch = writeBatch(db);
                 state.adminNotifications.forEach(n => {
@@ -1639,7 +1678,7 @@
         window.clearAllNotifications = async function() {
             if (!confirm("Deseja realmente limpar todo o histórico de notificações?")) return;
             state.adminNotifications = [];
-            showToast('Histórico de notificações limpo.');
+            showToast('🗑️ Histórico de notificações limpo.');
             try {
                 const batch = writeBatch(db);
                 state.adminOrders.forEach(o => {
@@ -1721,17 +1760,17 @@
                 if (oldPhone !== newPhone) {
                     await createAdminNotification({
                         type: 'admin_master',
-                        title: 'Contato Atualizado',
+                        title: '📞 Contato Atualizado',
                         message: `@${state.currentTenant.name} atualizou contato`,
                         customerName: state.currentTenant.name,
                         action: 'contato_alterado'
                     });
                 }
                 
-                showToast("Contato atualizado com sucesso!");
+                showToast("✅ Contato atualizado com sucesso!");
                 btn.disabled = false; btn.innerHTML = 'Salvar Contato';
             } catch(err) {
-                showToast("Erro ao atualizar: " + err.message, "error");
+                showToast("❌ Erro ao atualizar: " + err.message, "error");
                 btn.disabled = false; btn.innerHTML = 'Salvar Contato';
             }
         };
@@ -1752,17 +1791,16 @@
                 
                 await createAdminNotification({
                     type: 'admin_master',
-                    title: 'Senha Atualizada',
+                    title: '🔑 Senha Atualizada',
                     message: `@${state.currentTenant.name} atualizou a senha`,
                     customerName: state.currentTenant.name,
                     action: 'senha_alterada'
                 });
                 
-                showToast("Senha alterada com sucesso!");
+                showToast("✅ Senha alterada com sucesso!");
                 document.getElementById('cfg-password').value = '';
                 btn.disabled = false; btn.innerHTML = 'Editar Senha';
 
-                // Mostra o modal de sucesso com a nova senha
                 openModal(`
                     <div class="fixed inset-0 z-50 flex items-center justify-center p-4 overlay fade-in">
                         <div class="bg-white rounded-3xl shadow-2xl p-8 text-center max-w-sm w-full">
@@ -1780,7 +1818,7 @@
             } catch(err) {
                 let msg = err.message;
                 if(err.code === 'auth/requires-recent-login') msg = "Por segurança, saia e faça login novamente para alterar a senha.";
-                showToast("Erro ao alterar senha: " + msg, "error");
+                showToast("❌ Erro ao alterar senha: " + msg, "error");
                 btn.disabled = false; btn.innerHTML = 'Editar Senha';
             }
         };
@@ -1925,12 +1963,12 @@
                 await setDoc(tenantRef, { name: newName }, { merge: true });
                 state.currentTenant.name = newName;
 
-                showToast("Nome do restaurante atualizado com sucesso!");
+                showToast("✅ Nome do restaurante atualizado com sucesso!");
                 closeModal();
                 handleRoute();
             } catch (err) {
                 console.error("Erro ao salvar nome do restaurante:", err);
-                showToast("Erro ao salvar: " + err.message, "error");
+                showToast("❌ Erro ao salvar: " + err.message, "error");
                 btn.disabled = false;
                 btn.innerHTML = '<i class="fas fa-save"></i> Salvar Nome';
             }
@@ -2020,12 +2058,12 @@
                 await setDoc(tenantRef, { slug: newSlug }, { merge: true });
                 state.currentTenant.slug = newSlug;
 
-                showToast("Link do cardápio atualizado com sucesso!");
+                showToast("✅ Link do cardápio atualizado com sucesso!");
                 closeModal();
                 handleRoute();
             } catch (err) {
                 console.error("Erro ao salvar link do cardápio:", err);
-                showToast("Erro ao salvar link: " + err.message, "error");
+                showToast("❌ Erro ao salvar link: " + err.message, "error");
                 btn.disabled = false;
                 btn.innerHTML = '<i class="fas fa-check"></i> Salvar Novo Link';
             }
@@ -2117,19 +2155,19 @@
                         'settings.profileImage': imageUrl
                     });
                     state.currentTenant.settings.profileImage = imageUrl;
-                    showToast('Foto do perfil atualizada!');
+                    showToast('✅ Foto do perfil atualizada!');
                 } else {
                     await updateDoc(tenantRef, {
                         'settings.coverImage': imageUrl
                     });
                     state.currentTenant.settings.coverImage = imageUrl;
-                    showToast('Foto do topo atualizada!');
+                    showToast('✅ Foto do topo atualizada!');
                 }
                 
                 closeModal();
                 loadAdminData();
             } catch (error) {
-                showToast('Erro ao salvar imagem: ' + error.message, 'error');
+                showToast('❌ Erro ao salvar imagem: ' + error.message, 'error');
             }
         }
 
@@ -2220,11 +2258,11 @@
             try {
                 const docRef = doc(collection(db, collections.products));
                 await setDoc(docRef, prod);
-                showToast('Produto adicionado!');
+                showToast('✅ Produto adicionado!');
                 closeModal();
                 loadAdminData();
             } catch (err) {
-                showToast('Erro ao salvar.', 'error');
+                showToast('❌ Erro ao salvar.', 'error');
                 btn.disabled = false; btn.innerHTML = 'Salvar Produto';
             }
         }
@@ -2329,11 +2367,11 @@
 
             try {
                 await updateDoc(doc(db, collections.products, productId), updatedProduct);
-                showToast('Produto atualizado!');
+                showToast('✅ Produto atualizado!');
                 closeModal();
                 loadAdminData();
             } catch (err) {
-                showToast('Erro ao atualizar produto.', 'error');
+                showToast('❌ Erro ao atualizar produto.', 'error');
                 btn.disabled = false; btn.innerHTML = 'Salvar Alterações';
             }
         }
@@ -2422,13 +2460,13 @@
             const currentHash = window.location.hash;
             handleRoute();
             
-            showToast('Imagem recortada com sucesso!');
+            showToast('✅ Imagem recortada com sucesso!');
         }
 
         window.deleteProduct = async function(id) {
             if(confirm("Tem certeza que deseja excluir este produto?")) {
                 await deleteDoc(doc(db, collections.products, id));
-                showToast("Produto excluído.");
+                showToast("🗑️ Produto excluído.");
                 loadAdminData();
             }
         }
@@ -2726,12 +2764,12 @@
                 }
                 state.adminNotifications.unshift(newHistoryItem);
 
-                showToast(`Alterações salvas e registradas em Notificações!`);
+                showToast("✅ Alterações salvas e registradas em Notificações!");
                 closeModal();
                 loadAdminData();
             } catch (err) {
                 console.error("Erro ao salvar alterações do pedido:", err);
-                showToast("Erro ao salvar alterações: " + err.message, "error");
+                showToast("❌ Erro ao salvar alterações: " + err.message, "error");
                 btn.disabled = false;
                 btn.innerHTML = 'Salvar Alterações';
             }
@@ -2849,7 +2887,7 @@
                 state.cart.push({ product, quantity: 1 });
             }
             
-            showToast(`${product.name} adicionado!`);
+            showToast(`✅ ${product.name} adicionado!`);
             updateCartTotal();
             
             if(state.cart.length === 1) handleRoute(); 
@@ -2974,7 +3012,7 @@
                     </div>
                 `);
             } catch(err) {
-                showToast("Erro ao processar pedido: " + err.message, "error");
+                showToast("❌ Erro ao processar pedido: " + err.message, "error");
                 btn.disabled = false; btn.innerHTML = 'Finalizar Pedido';
             }
         }
