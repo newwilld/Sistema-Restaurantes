@@ -55,21 +55,6 @@
         .sortable-chosen { box-shadow: 0 12px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1); }
         .sortable-drag { cursor: grabbing !important; opacity: 0.95; transform: rotate(1deg); }
         .drag-handle { touch-action: none; user-select: none; -webkit-user-select: none; }
-
-        /* Otimização: Transição suave para carregamento */
-        .auth-loading { position: relative; }
-        .auth-loading::after {
-            content: '';
-            position: absolute;
-            inset: 0;
-            background: rgba(255,255,255,0.7);
-            backdrop-filter: blur(2px);
-            border-radius: 12px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 10;
-        }
     </style>
 </head>
 <body class="text-gray-800 antialiased overflow-x-hidden">
@@ -131,9 +116,7 @@
             superAdminOrders: [],
             superAdminNotifications: [],
             
-            isAppLoaded: false,
-            // Controle de navegação para evitar múltiplos redirecionamentos
-            _authInProgress: false
+            isAppLoaded: false
         };
 
         function generateId() {
@@ -168,16 +151,8 @@
             handleRoute();
         }
 
-        // Cache de rotas para evitar recarregamentos desnecessários
-        let lastRoute = '';
-
         async function handleRoute() {
             const hash = window.location.hash;
-            
-            // Evita múltiplas execuções para a mesma rota
-            if (hash === lastRoute && state.isAppLoaded) return;
-            lastRoute = hash;
-
             const appDiv = document.getElementById('app');
 
             if (!state.isAppLoaded) return;
@@ -258,11 +233,7 @@
                     state.isAppLoaded = true;
                     handleRoute();
                 } else {
-                    // Atualiza a rota atual sem recarregar tudo
-                    const currentHash = window.location.hash;
-                    if (currentHash.startsWith('#/admin') || currentHash.startsWith('#/superadmin')) {
-                        handleRoute();
-                    }
+                    handleRoute();
                 }
             });
         }
@@ -481,24 +452,8 @@
             `;
         }
 
-        // Função otimizada para redirecionamento após login/cadastro
-        function redirectAfterAuth(shouldNavigateToAdmin = true) {
-            if (state.isSuperAdmin) {
-                window.location.hash = '#/superadmin';
-            } else if (shouldNavigateToAdmin && state.currentTenant) {
-                window.location.hash = '#/admin';
-            } else {
-                window.location.hash = '#/';
-            }
-        }
-
         window.handleAuthSubmit = async function(event, isRegister, isAdmin) {
             event.preventDefault();
-            
-            // Evita múltiplas submissões
-            if (state._authInProgress) return;
-            state._authInProgress = true;
-            
             const btn = document.getElementById('auth-btn');
             const originalText = btn.innerHTML;
             btn.innerHTML = '<div class="loader w-5 h-5 border-2 border-white border-t-transparent mx-auto"></div>';
@@ -515,14 +470,6 @@
                     
                     if(slug.length < 3) throw new Error("Link deve ter pelo menos 3 caracteres.");
 
-                    // Verifica se o slug já existe antes de criar a conta
-                    const slugQuery = query(collection(db, collections.tenants), where("slug", "==", slug));
-                    const slugSnap = await getDocs(slugQuery);
-                    if (!slugSnap.empty) {
-                        throw new Error("Este link de cardápio já está em uso. Escolha outro.");
-                    }
-
-                    // Cria a conta de forma síncrona
                     const userCreds = await createUserWithEmailAndPassword(auth, email, password);
                     await updateProfile(userCreds.user, { displayName: name });
                     
@@ -546,7 +493,6 @@
 
                     await setDoc(doc(db, collections.tenants, userCreds.user.uid), tenantData);
 
-                    // Notificação assíncrona - não bloqueia o fluxo
                     try {
                         await createAdminNotification({
                             type: 'admin_master',
@@ -565,23 +511,11 @@
                     state.isSuperAdmin = false;
 
                     showToast('Restaurante criado com sucesso! Bem-vindo(a).');
-                    
-                    // Redireciona imediatamente para o admin sem esperar o onAuthStateChanged
-                    btn.innerHTML = originalText;
-                    btn.disabled = false;
-                    state._authInProgress = false;
-                    
-                    // Força a atualização da rota
                     window.location.hash = '#/admin';
-                    // Garante que o conteúdo seja renderizado
-                    setTimeout(() => handleRoute(), 100);
 
                 } else {
-                    // Login
                     const userCreds = await signInWithEmailAndPassword(auth, email, password);
-                    
                     if (isAdmin && email !== 'willdalves1@gmail.com') {
-                        await signOut(auth);
                         throw new Error("Acesso administrativo negado.");
                     }
                     
@@ -595,7 +529,6 @@
                             state.currentTenant = { id: docSnap.id, ...docSnap.data() };
                         } else {
                             state.currentTenant = null;
-                            throw new Error("Conta não possui um restaurante vinculado.");
                         }
                     } else {
                         try {
@@ -606,25 +539,16 @@
                     }
 
                     showToast('Acesso liberado.');
-                    
-                    btn.innerHTML = originalText;
-                    btn.disabled = false;
-                    state._authInProgress = false;
-                    
-                    // Redireciona imediatamente
-                    redirectAfterAuth(true);
-                    setTimeout(() => handleRoute(), 100);
+                    window.location.hash = state.isSuperAdmin ? '#/superadmin' : '#/admin';
                 }
             } catch (error) {
                 console.error(error);
                 let msg = error.message;
                 if(error.code === 'auth/email-already-in-use') msg = "E-mail já cadastrado.";
                 if(error.code === 'auth/invalid-credential') msg = "E-mail ou senha incorretos.";
-                if(error.message.includes("link de cardápio já está em uso")) msg = error.message;
                 showToast(msg, 'error');
                 btn.innerHTML = originalText;
                 btn.disabled = false;
-                state._authInProgress = false;
             }
         }
 
@@ -673,7 +597,6 @@
                 window.unsubSuperAdminNotifs = null;
             }
             
-            state._authInProgress = false;
             window.location.hash = '#/';
         }
 
@@ -791,52 +714,6 @@
                 contentDiv.innerHTML = getSuperAdminContent(window.location.hash.split('/')[2] || 'dashboard');
             }
         }
-
-        // ==================== NOVA FUNÇÃO: ALTERAR STATUS DO CARDÁPIO ====================
-        async function toggleRestaurantStatus(tenantId, currentStatus) {
-            const newStatus = currentStatus === 'open' ? 'closed' : 'open';
-            const statusLabel = newStatus === 'open' ? 'Aberto' : 'Fechado';
-            const statusColor = newStatus === 'open' ? 'green' : 'red';
-            
-            try {
-                const tenantRef = doc(db, collections.tenants, tenantId);
-                await updateDoc(tenantRef, {
-                    'settings.open': newStatus === 'open'
-                });
-                
-                // Atualiza o estado local
-                if (state.currentTenant && state.currentTenant.id === tenantId) {
-                    state.currentTenant.settings.open = newStatus === 'open';
-                }
-                
-                showToast(`Cardápio agora está ${statusLabel}!`);
-                
-                // Atualiza a visualização do cardápio público se estiver aberto
-                if (window.location.hash.startsWith('#/cardapio/')) {
-                    const slug = window.location.hash.split('/')[2];
-                    await loadPublicMenuData(slug);
-                    renderPublicMenu(document.getElementById('app'));
-                }
-                
-                // Atualiza o painel admin
-                if (window.location.hash.startsWith('#/admin')) {
-                    const contentDiv = document.getElementById('admin-content');
-                    if (contentDiv) {
-                        const subRoute = window.location.hash.split('/')[2] || 'dashboard';
-                        contentDiv.innerHTML = getAdminContent(subRoute);
-                    }
-                }
-                
-                return true;
-            } catch (err) {
-                console.error("Erro ao alterar status:", err);
-                showToast("Erro ao alterar status do cardápio.", "error");
-                return false;
-            }
-        }
-
-        window.toggleRestaurantStatus = toggleRestaurantStatus;
-
                 async function checkPlanExpirations() {
             if (!state.isSuperAdmin) return;
             const batch = writeBatch(db);
@@ -906,7 +783,7 @@
 
             container.innerHTML = `
                 <div class="flex h-screen bg-gray-50 fade-in text-sm">
-                    <aside class="w-64 bg-[#0f172a] text-white flex-col hidden md:flex shrink-0">
+                    <aside class="w-64 bg-[#0f172a] text-white flex flex-col border-r border-gray-800">
                         <div class="p-6">
                             <div class="font-black text-xl flex items-center gap-2 mb-1"><i class="fas fa-shield-alt text-purple-500"></i> WA Admin</div>
                             <div class="text-xs text-gray-400 uppercase tracking-widest font-bold">Plataforma SaaS</div>
@@ -1376,8 +1253,7 @@
                 btn.innerHTML = '<i class="fas fa-save"></i> Salvar Alterações';
             }
         };
-
-        window.openCreateTenantModal = function() {
+                window.openCreateTenantModal = function() {
             const d = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
             const defaultRenewal = d.toISOString().split('T')[0];
 
@@ -1627,11 +1503,6 @@
             const subRoute = hash.split('/')[2] || 'dashboard';
             const tenant = state.currentTenant;
             const unreadCount = state.adminNotifications.filter(n => !n.read).length;
-            
-            // Verifica se o cardápio está aberto
-            const isOpen = tenant?.settings?.open !== undefined ? tenant.settings.open : true;
-            const statusLabel = isOpen ? 'Aberto' : 'Fechado';
-            const statusColor = isOpen ? 'green' : 'red';
 
             container.innerHTML = `
                 <div class="flex h-screen bg-gray-50 fade-in text-sm flex-col md:flex-row">
@@ -1647,13 +1518,6 @@
                             <div class="mt-1 text-xs text-gray-400 font-mono truncate">
                                 <a href="#/cardapio/${tenant?.slug}" target="_blank" class="hover:text-white">wa.com/${tenant?.slug}</a>
                             </div>
-                            <!-- Status do Cardápio -->
-                            <div class="mt-2 flex items-center gap-2">
-                                <span class="text-xs font-bold uppercase tracking-wider text-gray-400">Status:</span>
-                                <span class="text-xs font-black px-2 py-0.5 rounded-full ${isOpen ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}">
-                                    ${statusLabel}
-                                </span>
-                            </div>
                         </div>
                         <nav class="flex-grow px-4 space-y-1 mt-4">
                             <a href="#/admin/notificacoes" class="flex items-center justify-between px-4 py-3 rounded-xl transition ${subRoute === 'notificacoes' ? 'bg-brand-600 font-bold text-white shadow-lg shadow-brand-600/30' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}">
@@ -1666,12 +1530,6 @@
                             <a href="#/admin/pedidos" class="flex items-center gap-3 px-4 py-3 rounded-xl transition ${subRoute === 'pedidos' ? 'bg-brand-600 font-bold text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-receipt w-5"></i> Pedidos</a>
                             <a href="#/admin/cardapio" class="flex items-center gap-3 px-4 py-3 rounded-xl transition ${subRoute === 'cardapio' ? 'bg-brand-600 font-bold text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-utensils w-5"></i> Meu Cardápio</a>
                             <a href="#/admin/configuracoes" class="flex items-center gap-3 px-4 py-3 rounded-xl transition ${subRoute === 'configuracoes' ? 'bg-brand-600 font-bold text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-cog w-5"></i> Configurações</a>
-                            <!-- Botão ALTERAR STATUS do cardápio -->
-                            <button onclick="toggleRestaurantStatus('${tenant?.id}', '${isOpen ? 'open' : 'closed'}')" 
-                                    class="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition mt-2 ${isOpen ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-red-600 hover:bg-red-700 text-white'} font-bold">
-                                <i class="fas ${isOpen ? 'fa-toggle-on' : 'fa-toggle-off'} w-5"></i> 
-                                ${isOpen ? 'Fechar Cardápio' : 'Abrir Cardápio'}
-                            </button>
                         </nav>
                         <div class="p-4 border-t border-gray-800">
                             <button onclick="doLogout()" class="w-full flex items-center gap-3 px-4 py-3 text-red-400 hover:bg-red-500/10 rounded-xl font-bold transition"><i class="fas fa-power-off w-5"></i> Sair do Painel</button>
@@ -1899,8 +1757,7 @@
             }
             loadAdminData();
         };
-
-        function renderAdminSettings() {
+                function renderAdminSettings() {
             const t = state.currentTenant || {};
             return `
                 <div class="max-w-2xl mx-auto space-y-6">
@@ -2037,30 +1894,10 @@
             }
         };
 
-        // ==================== FUNÇÃO PARA ALTERAR STATUS NO MEU CARDÁPIO ====================
-        // ==================== FUNÇÃO PARA ALTERAR STATUS NO MEU CARDÁPIO ====================
         function renderAdminMenuBuilder() {
-            const isOpen = state.currentTenant?.settings?.open !== undefined ? state.currentTenant.settings.open : true;
-            const statusColor = isOpen ? 'green' : 'red';
-            const statusLabel = isOpen ? 'Aberto' : 'Fechado';
-            const statusIcon = isOpen ? 'fa-toggle-on' : 'fa-toggle-off';
-
             return `
                 <div class="mb-6">
-                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
-                        <div>
-                            <h3 class="font-bold text-gray-800 text-lg">Configurações do Cardápio</h3>
-                            <p class="text-xs text-gray-500">Gerencie as informações e a visibilidade do seu cardápio público</p>
-                        </div>
-                        <!-- Botão de Status do Cardápio -->
-                        <button onclick="toggleRestaurantStatus('${state.currentTenant?.id}', '${isOpen ? 'open' : 'closed'}')" 
-                                class="flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-white shadow-lg transition transform hover:scale-105 ${isOpen ? 'bg-green-500 hover:bg-green-600 shadow-green-500/30' : 'bg-red-500 hover:bg-red-600 shadow-red-500/30'}">
-                            <i class="fas ${statusIcon}"></i>
-                            <span>${isOpen ? 'Fechar Cardápio' : 'Abrir Cardápio'}</span>
-                            <span class="ml-1 text-xs bg-white/20 px-2 py-0.5 rounded-full">${statusLabel}</span>
-                        </button>
-                    </div>
-                    
+                    <h3 class="font-bold text-gray-800 text-lg mb-4">Configurações do Cardápio</h3>
                     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                         <button onclick="openRestaurantNameEditor()" class="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition text-left group">
                             <div class="flex items-center gap-3">
@@ -2499,8 +2336,7 @@
                 btn.disabled = false; btn.innerHTML = 'Salvar Produto';
             }
         }
-
-        window.openProductEditor = function(productId) {
+                window.openProductEditor = function(productId) {
             const product = state.adminProducts.find(p => p.id === productId);
             if (!product) return;
             
@@ -3044,26 +2880,6 @@
                             </div>
                             <h2 class="text-2xl font-black text-gray-800 mb-3">Sistema Congelado</h2>
                             <p class="text-gray-500 font-medium leading-relaxed mb-6">O cardápio de <strong>${state.publicTenant.name}</strong> encontra-se temporariamente indisponível.</p>
-                            <a href="#/" class="inline-block bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 px-6 rounded-xl transition">Voltar ao Início</a>
-                        </div>
-                    </div>
-                `;
-                return;
-            }
-
-            // Verifica se o cardápio está aberto
-            const isOpen = state.publicTenant.settings?.open !== undefined ? state.publicTenant.settings.open : true;
-
-            if (!isOpen) {
-                container.innerHTML = `
-                    <div class="min-h-screen flex items-center justify-center bg-gray-50 p-4 fade-in">
-                        <div class="bg-white p-8 md:p-12 rounded-3xl shadow-2xl text-center max-w-md w-full border border-gray-100 relative overflow-hidden">
-                            <div class="absolute top-0 left-0 w-full h-2 bg-red-500"></div>
-                            <div class="w-24 h-24 bg-red-50 text-red-500 rounded-full flex items-center justify-center text-5xl mx-auto mb-6 shadow-inner">
-                                <i class="fas fa-store-slash"></i>
-                            </div>
-                            <h2 class="text-2xl font-black text-gray-800 mb-3">Cardápio Fechado</h2>
-                            <p class="text-gray-500 font-medium leading-relaxed mb-6">O estabelecimento <strong>${state.publicTenant.name}</strong> está com o cardápio fechado no momento. Volte mais tarde!</p>
                             <a href="#/" class="inline-block bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 px-6 rounded-xl transition">Voltar ao Início</a>
                         </div>
                     </div>
