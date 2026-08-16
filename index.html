@@ -528,10 +528,70 @@
             state.superAdminTenants = tenantsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
             
             await loadSuperAdminNotifications();
+            await checkPlanExpirations(); // Nova checagem de vencimentos
             
             const contentDiv = document.getElementById('superadmin-content');
             if (contentDiv) {
                 contentDiv.innerHTML = getSuperAdminContent(window.location.hash.split('/')[2] || 'dashboard');
+            }
+        }
+
+        async function checkPlanExpirations() {
+            if (!state.isSuperAdmin) return;
+            const batch = writeBatch(db);
+            let hasUpdates = false;
+
+            for (let t of state.superAdminTenants) {
+                if (!t.renewalDate || t.status === 'canceled') continue;
+                
+                const today = new Date();
+                today.setHours(0,0,0,0);
+                // Ajusta timezone para evitar bugs de virada de dia
+                const renewalParts = t.renewalDate.split('-');
+                const renewal = new Date(renewalParts[0], renewalParts[1] - 1, renewalParts[2]); 
+                
+                const diffTime = renewal - today;
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                
+                let notifType = null;
+                let msg = '';
+                let updateFields = {};
+
+                if (diffDays === 5 && t.lastNotif !== '5d') {
+                    notifType = '5d'; msg = `O plano de @${t.name} vai vencer em 5 dias`;
+                } else if (diffDays === 3 && t.lastNotif !== '3d') {
+                    notifType = '3d'; msg = `O plano de @${t.name} vai vencer em 3 dias`;
+                } else if (diffDays === 0 && t.lastNotif !== '0d') {
+                    notifType = '0d'; msg = `O plano de @${t.name} vai vencer hoje`;
+                } else if (diffDays === -3 && t.lastNotif !== '-3d') {
+                    notifType = '-3d'; msg = `@${t.name} venceu a 3 dias após 5 dias será congelado`;
+                } else if (diffDays <= -5 && t.status !== 'suspended') {
+                    notifType = 'suspended_auto'; 
+                    msg = `O plano de @${t.name} venceu há 5 dias. Foi atualizado para Suspenso.`;
+                    updateFields.status = 'suspended';
+                }
+
+                if (notifType) {
+                    updateFields.lastNotif = notifType;
+                    const tRef = doc(db, collections.tenants, t.id);
+                    batch.update(tRef, updateFields);
+                    hasUpdates = true;
+                    
+                    t.status = updateFields.status || t.status;
+                    t.lastNotif = notifType;
+
+                    await createAdminNotification({
+                        type: 'admin_master',
+                        title: 'Aviso de Vencimento',
+                        message: msg,
+                        customerName: t.name,
+                        action: 'vencimento'
+                    });
+                }
+            }
+
+            if (hasUpdates) {
+                await batch.commit();
             }
         }
 
@@ -953,6 +1013,11 @@
                     lastModified: Date.now()
                 };
 
+                // Remove a notificação de vencimento caso o admin renove o plano manualmente
+                if(oldTenant && oldTenant.renewalDate !== renewalDate) {
+                    updatedPayload.lastNotif = null; 
+                }
+
                 if (password) {
                     updatedPayload.password = password;
                 }
@@ -964,27 +1029,42 @@
                     state.superAdminTenants[index] = { ...state.superAdminTenants[index], ...updatedPayload };
                 }
 
-                if (oldTenant && (oldTenant.email !== email || oldTenant.password !== password)) {
+                if (oldTenant) {
                     const changes = [];
-                    if (oldTenant.email !== email) {
-                        changes.push('email');
-                    }
-                    if (oldTenant.password !== password) {
-                        changes.push('senha');
-                    }
+                    if (oldTenant.email !== email) changes.push('email');
+                    if (oldTenant.password !== password) changes.push('senha');
                     
-                    const message = changes.includes('senha') 
-                        ? `${name} atualizou a senha do sistema`
-                        : `${name} atualizou o email de acesso`;
-                    
-                    await createAdminNotification({
-                        type: 'admin_master',
-                        title: changes.includes('senha') ? 'Senha Atualizada' : 'Email Atualizado',
-                        message: message,
-                        customerName: name,
-                        customerEmail: email,
-                        action: changes.includes('senha') ? 'senha_alterada' : 'email_alterado'
-                    });
+                    if(changes.length > 0) {
+                        const message = changes.includes('senha') 
+                            ? `@${name} atualizou a senha no sistema`
+                            : `@${name} atualizou o email de acesso`;
+                        
+                        await createAdminNotification({
+                            type: 'admin_master',
+                            title: changes.includes('senha') ? 'Senha Atualizada' : 'Email Atualizado',
+                            message: message,
+                            customerName: name,
+                            customerEmail: email,
+                            action: changes.includes('senha') ? 'senha_alterada' : 'email_alterado'
+                        });
+                    }
+
+                    if (oldTenant.status !== status) {
+                        let statusMsg = '';
+                        if (status === 'active') statusMsg = `@${name} foi atualizado para Ativo`;
+                        else if (status === 'suspended') statusMsg = `@${name} foi atualizado para Suspenso`;
+                        else if (status === 'canceled') statusMsg = `@${name} cancelou a assinatura`;
+
+                        if (statusMsg) {
+                            await createAdminNotification({
+                                type: 'admin_master',
+                                title: 'Status Alterado',
+                                message: statusMsg,
+                                customerName: name,
+                                action: 'status_alterado'
+                            });
+                        }
+                    }
                 }
 
                 showToast("Dados do lojista atualizados com sucesso!");
@@ -1246,8 +1326,8 @@
             const unreadCount = state.adminNotifications.filter(n => !n.read).length;
 
             container.innerHTML = `
-                <div class="flex h-screen bg-gray-50 fade-in text-sm">
-                    <aside class="w-64 bg-gray-900 text-white flex flex-col hidden md:flex">
+                <div class="flex h-screen bg-gray-50 fade-in text-sm flex-col md:flex-row">
+                    <aside class="w-64 bg-gray-900 text-white flex-col hidden md:flex shrink-0">
                         <div class="p-6 border-b border-gray-800">
                             <div class="font-black text-xl flex items-center gap-2">
                                 <i class="fas fa-store text-brand-500"></i> ${tenant?.name || 'Carregando...'}
@@ -1270,16 +1350,35 @@
                             <a href="#/admin/dashboard" class="flex items-center gap-3 px-4 py-3 rounded-xl transition ${subRoute === 'dashboard' ? 'bg-brand-600 font-bold text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-chart-pie w-5"></i> Visão Geral</a>
                             <a href="#/admin/pedidos" class="flex items-center gap-3 px-4 py-3 rounded-xl transition ${subRoute === 'pedidos' ? 'bg-brand-600 font-bold text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-receipt w-5"></i> Pedidos</a>
                             <a href="#/admin/cardapio" class="flex items-center gap-3 px-4 py-3 rounded-xl transition ${subRoute === 'cardapio' ? 'bg-brand-600 font-bold text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-utensils w-5"></i> Meu Cardápio</a>
+                            <a href="#/admin/configuracoes" class="flex items-center gap-3 px-4 py-3 rounded-xl transition ${subRoute === 'configuracoes' ? 'bg-brand-600 font-bold text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-cog w-5"></i> Configurações</a>
                         </nav>
                         <div class="p-4 border-t border-gray-800">
                             <button onclick="doLogout()" class="w-full flex items-center gap-3 px-4 py-3 text-red-400 hover:bg-red-500/10 rounded-xl font-bold transition"><i class="fas fa-power-off w-5"></i> Sair do Painel</button>
                         </div>
                     </aside>
-                    <main class="flex-grow flex flex-col overflow-hidden">
+                    <main class="flex-grow flex flex-col overflow-hidden relative">
+                        <!-- BANNER SISTEMA CONGELADO / SUSPENSO -->
+                        ${tenant?.status === 'suspended' ? `
+                            <div class="bg-red-600 text-white p-4 shrink-0 flex flex-col sm:flex-row items-center justify-between gap-4 z-20 shadow-md">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center shrink-0">
+                                        <i class="fas fa-exclamation-triangle text-xl"></i>
+                                    </div>
+                                    <div>
+                                        <h4 class="font-black text-base">Sistema Congelado</h4>
+                                        <p class="text-xs opacity-90">Seu cardápio público está bloqueado devido a pendências na assinatura.</p>
+                                    </div>
+                                </div>
+                                <button onclick="openRenewalModal()" class="bg-white text-red-600 px-6 py-2.5 rounded-xl font-black shadow-sm hover:bg-red-50 hover:scale-105 transition transform whitespace-nowrap w-full sm:w-auto">
+                                    Renovar Assinatura via Pix
+                                </button>
+                            </div>
+                        ` : ''}
+
                         <header class="h-16 bg-white border-b px-8 flex items-center justify-between shrink-0 shadow-sm z-10">
                             <h2 class="text-lg font-bold text-gray-800 capitalize flex items-center gap-2">
-                                <i class="fas ${subRoute === 'notificacoes' ? 'fa-bell text-brand-500' : (subRoute === 'pedidos' ? 'fa-receipt text-blue-500' : (subRoute === 'cardapio' ? 'fa-utensils text-brand-500' : 'fa-chart-pie text-green-500'))}"></i> 
-                                ${subRoute === 'notificacoes' ? 'Notificações & Histórico' : (subRoute === 'pedidos' ? 'Gestão de Pedidos' : (subRoute === 'cardapio' ? 'Meu Cardápio' : 'Visão Geral'))}
+                                <i class="fas ${subRoute === 'notificacoes' ? 'fa-bell text-brand-500' : (subRoute === 'pedidos' ? 'fa-receipt text-blue-500' : (subRoute === 'cardapio' ? 'fa-utensils text-brand-500' : (subRoute === 'configuracoes' ? 'fa-cog text-gray-600' : 'fa-chart-pie text-green-500')))}"></i> 
+                                ${subRoute === 'notificacoes' ? 'Notificações & Histórico' : (subRoute === 'pedidos' ? 'Gestão de Pedidos' : (subRoute === 'cardapio' ? 'Meu Cardápio' : (subRoute === 'configuracoes' ? 'Configurações da Conta' : 'Visão Geral')))}
                             </h2>
                             <div class="flex items-center gap-3">
                                 <a href="#/admin/notificacoes" class="relative p-2 text-gray-400 hover:text-brand-500 rounded-xl hover:bg-gray-50 transition" title="Notificações">
@@ -1291,6 +1390,14 @@
                         </header>
                         <div class="flex-grow p-4 md:p-8 overflow-y-auto" id="admin-content">
                             <div class="flex justify-center h-full items-center"><div class="loader w-8 h-8 border-4 border-gray-200 border-t-brand-500"></div></div>
+                        </div>
+                        
+                        <!-- Mobile Navigation -->
+                        <div class="md:hidden bg-gray-900 text-white flex justify-around p-3 pb-safe border-t border-gray-800 shrink-0">
+                             <a href="#/admin/dashboard" class="flex flex-col items-center gap-1 ${subRoute === 'dashboard' ? 'text-brand-500' : 'text-gray-400'}"><i class="fas fa-chart-pie text-xl"></i><span class="text-[10px] font-bold">Início</span></a>
+                             <a href="#/admin/pedidos" class="flex flex-col items-center gap-1 ${subRoute === 'pedidos' ? 'text-brand-500' : 'text-gray-400'}"><i class="fas fa-receipt text-xl"></i><span class="text-[10px] font-bold">Pedidos</span></a>
+                             <a href="#/admin/cardapio" class="flex flex-col items-center gap-1 ${subRoute === 'cardapio' ? 'text-brand-500' : 'text-gray-400'}"><i class="fas fa-utensils text-xl"></i><span class="text-[10px] font-bold">Cardápio</span></a>
+                             <a href="#/admin/configuracoes" class="flex flex-col items-center gap-1 ${subRoute === 'configuracoes' ? 'text-brand-500' : 'text-gray-400'}"><i class="fas fa-cog text-xl"></i><span class="text-[10px] font-bold">Ajustes</span></a>
                         </div>
                     </main>
                 </div>
@@ -1305,10 +1412,48 @@
             }
         }
 
+        window.openRenewalModal = function() {
+            const phoneNumber = "5511999999999"; // Número do admin master (substitua pelo real)
+            const wppMessage = encodeURIComponent(`Olá, sou o restaurante ${state.currentTenant?.name} e gostaria de enviar o comprovante de pagamento para liberação do meu sistema.`);
+            
+            const html = `
+                <div class="fixed inset-0 z-50 flex items-center justify-center p-4 overlay fade-in">
+                    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
+                        <div class="p-6 border-b flex justify-between items-center bg-gray-50">
+                            <h3 class="font-bold text-gray-800 text-lg flex items-center gap-2">
+                                <i class="fas fa-qrcode text-brand-500"></i> Renovar Assinatura
+                            </h3>
+                            <button onclick="closeModal()" class="text-gray-400 hover:text-gray-800 text-xl leading-none">&times;</button>
+                        </div>
+                        <div class="p-6 text-center space-y-6">
+                            <div>
+                                <h4 class="font-black text-gray-800 text-xl mb-1">Pagamento via PIX</h4>
+                                <p class="text-sm text-gray-500">Escaneie o QR Code abaixo no aplicativo do seu banco para realizar o pagamento e liberar seu sistema.</p>
+                            </div>
+                            
+                            <div class="bg-gray-50 p-4 rounded-2xl border border-gray-200 inline-block mx-auto shadow-inner">
+                                <!-- Placeholder para QR Code Pix Real -->
+                                <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=00020126360014br.gov.bcb.pix0114+5511999999999520400005303986540599.905802BR5910WA VENDAS6009SAO PAULO62070503***6304" alt="QR Code Pix" class="w-48 h-48 mx-auto rounded-lg">
+                            </div>
+                            
+                            <div class="bg-green-50 p-4 rounded-xl border border-green-200 text-left">
+                                <p class="text-xs text-green-800 font-bold mb-3 flex items-center gap-2"><i class="fas fa-check-circle text-green-500"></i> Após o pagamento, envie o comprovante!</p>
+                                <a href="https://wa.me/${phoneNumber}?text=${wppMessage}" target="_blank" class="w-full bg-green-500 hover:bg-green-600 text-white font-black py-3.5 px-4 rounded-xl shadow-lg shadow-green-500/30 transition flex items-center justify-center gap-2">
+                                    <i class="fab fa-whatsapp text-xl"></i> Enviar Comprovante no WhatsApp
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            openModal(html);
+        };
+
         function getAdminContent(route) {
             if (route === 'notificacoes') return renderAdminNotifications();
             if (route === 'cardapio') return renderAdminMenuBuilder();
             if (route === 'pedidos') return renderAdminOrders();
+            if (route === 'configuracoes') return renderAdminSettings();
             
             const faturamento = state.adminOrders.reduce((sum, o) => sum + (o.status !== 'cancelado' ? o.total : 0), 0);
             return `
@@ -1436,6 +1581,136 @@
                 console.warn(err);
             }
             loadAdminData();
+        };
+
+        function renderAdminSettings() {
+            const t = state.currentTenant || {};
+            return `
+                <div class="max-w-2xl mx-auto space-y-6">
+                    <div class="bg-white p-6 md:p-8 rounded-3xl border border-gray-100 shadow-sm">
+                        <h3 class="font-black text-gray-800 text-xl mb-1 flex items-center gap-2">
+                            <i class="fas fa-address-card text-brand-500"></i> Informações de Contato
+                        </h3>
+                        <p class="text-xs text-gray-500 mb-6">Atualize o número de telefone/WhatsApp que seus clientes verão.</p>
+                        
+                        <form onsubmit="saveTenantSettings(event)" class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-bold text-gray-700 mb-1">WhatsApp de Contato</label>
+                                <div class="relative">
+                                    <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-green-500">
+                                        <i class="fab fa-whatsapp text-lg"></i>
+                                    </div>
+                                    <input type="text" id="cfg-phone" value="${t.phone || ''}" required placeholder="(11) 99999-9999" class="w-full pl-11 pr-4 py-3 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:bg-white focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 transition font-medium">
+                                </div>
+                            </div>
+                            <button type="submit" id="btn-save-cfg" class="bg-gray-900 text-white font-bold py-3 px-6 rounded-xl hover:bg-black transition shadow-md w-full sm:w-auto">
+                                Salvar Contato
+                            </button>
+                        </form>
+                    </div>
+
+                    <div class="bg-white p-6 md:p-8 rounded-3xl border border-gray-100 shadow-sm">
+                        <h3 class="font-black text-gray-800 text-xl mb-1 flex items-center gap-2">
+                            <i class="fas fa-shield-alt text-brand-500"></i> Segurança
+                        </h3>
+                        <p class="text-xs text-gray-500 mb-6">Altere sua senha de acesso ao painel. O administrador será notificado da alteração.</p>
+                        
+                        <form onsubmit="saveTenantPassword(event)" class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-bold text-gray-700 mb-1">Nova Senha</label>
+                                <div class="relative">
+                                    <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-gray-400">
+                                        <i class="fas fa-lock"></i>
+                                    </div>
+                                    <input type="password" id="cfg-password" required minlength="6" placeholder="Mínimo 6 caracteres" class="w-full pl-11 pr-4 py-3 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:bg-white focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 transition">
+                                </div>
+                            </div>
+                            <button type="submit" id="btn-save-pass" class="bg-brand-500 text-white font-bold py-3 px-6 rounded-xl hover:bg-brand-600 shadow-lg shadow-brand-500/30 transition w-full sm:w-auto">
+                                Editar Senha
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            `;
+        }
+
+        window.saveTenantSettings = async function(e) {
+            e.preventDefault();
+            const btn = document.getElementById('btn-save-cfg');
+            btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...';
+            
+            const newPhone = document.getElementById('cfg-phone').value.trim();
+            const oldPhone = state.currentTenant.phone;
+
+            try {
+                await updateDoc(doc(db, collections.tenants, state.currentTenant.id), { phone: newPhone });
+                state.currentTenant.phone = newPhone;
+                
+                if (oldPhone !== newPhone) {
+                    await createAdminNotification({
+                        type: 'admin_master',
+                        title: 'Contato Atualizado',
+                        message: `@${state.currentTenant.name} atualizou contato`,
+                        customerName: state.currentTenant.name,
+                        action: 'contato_alterado'
+                    });
+                }
+                
+                showToast("Contato atualizado com sucesso!");
+                btn.disabled = false; btn.innerHTML = 'Salvar Contato';
+            } catch(err) {
+                showToast("Erro ao atualizar: " + err.message, "error");
+                btn.disabled = false; btn.innerHTML = 'Salvar Contato';
+            }
+        };
+
+        window.saveTenantPassword = async function(e) {
+            e.preventDefault();
+            const btn = document.getElementById('btn-save-pass');
+            btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...';
+            
+            const newPass = document.getElementById('cfg-password').value;
+
+            try {
+                if(state.currentUser) {
+                    await updatePassword(state.currentUser, newPass);
+                }
+                
+                await updateDoc(doc(db, collections.tenants, state.currentTenant.id), { password: newPass });
+                
+                await createAdminNotification({
+                    type: 'admin_master',
+                    title: 'Senha Atualizada',
+                    message: `@${state.currentTenant.name} atualizou a senha`,
+                    customerName: state.currentTenant.name,
+                    action: 'senha_alterada'
+                });
+                
+                showToast("Senha alterada com sucesso!");
+                document.getElementById('cfg-password').value = '';
+                btn.disabled = false; btn.innerHTML = 'Editar Senha';
+
+                // Mostra o modal de sucesso com a nova senha
+                openModal(`
+                    <div class="fixed inset-0 z-50 flex items-center justify-center p-4 overlay fade-in">
+                        <div class="bg-white rounded-3xl shadow-2xl p-8 text-center max-w-sm w-full">
+                            <div class="w-20 h-20 bg-green-100 text-green-500 rounded-full flex items-center justify-center text-4xl mx-auto mb-6"><i class="fas fa-lock"></i></div>
+                            <h2 class="text-2xl font-black text-gray-800 mb-2">Senha Atualizada!</h2>
+                            <p class="text-gray-500 mb-4 text-sm">Sua nova senha foi salva e o administrador foi notificado.</p>
+                            <div class="bg-gray-100 p-3 rounded-xl mb-6 font-mono text-gray-800 font-bold text-lg select-all">
+                                ${newPass}
+                            </div>
+                            <button onclick="closeModal();" class="w-full bg-gray-900 text-white font-bold py-3.5 rounded-xl">Entendi</button>
+                        </div>
+                    </div>
+                `);
+
+            } catch(err) {
+                let msg = err.message;
+                if(err.code === 'auth/requires-recent-login') msg = "Por segurança, saia e faça login novamente para alterar a senha.";
+                showToast("Erro ao alterar senha: " + msg, "error");
+                btn.disabled = false; btn.innerHTML = 'Editar Senha';
+            }
         };
 
         function renderAdminMenuBuilder() {
@@ -2413,6 +2688,23 @@
         window.renderPublicMenu = function(container) {
             if (!state.publicTenant) {
                 container.innerHTML = `<div class="min-h-screen flex items-center justify-center flex-col"><i class="fas fa-store-slash text-4xl text-gray-300 mb-4"></i><h2 class="text-xl font-bold">Restaurante não encontrado.</h2><a href="#/" class="text-brand-500 mt-4 font-bold">Voltar</a></div>`;
+                return;
+            }
+
+            if (state.publicTenant.status === 'suspended' || state.publicTenant.status === 'canceled') {
+                container.innerHTML = `
+                    <div class="min-h-screen flex items-center justify-center bg-gray-50 p-4 fade-in">
+                        <div class="bg-white p-8 md:p-12 rounded-3xl shadow-2xl text-center max-w-md w-full border border-gray-100 relative overflow-hidden">
+                            <div class="absolute top-0 left-0 w-full h-2 bg-red-500"></div>
+                            <div class="w-24 h-24 bg-red-50 text-red-500 rounded-full flex items-center justify-center text-5xl mx-auto mb-6 shadow-inner">
+                                <i class="fas fa-lock"></i>
+                            </div>
+                            <h2 class="text-2xl font-black text-gray-800 mb-3">Sistema Congelado</h2>
+                            <p class="text-gray-500 font-medium leading-relaxed mb-6">O cardápio de <strong>${state.publicTenant.name}</strong> encontra-se temporariamente indisponível.</p>
+                            <a href="#/" class="inline-block bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 px-6 rounded-xl transition">Voltar ao Início</a>
+                        </div>
+                    </div>
+                `;
                 return;
             }
 
