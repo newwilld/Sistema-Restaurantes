@@ -233,16 +233,56 @@
             });
         }
 
+        window.unsubSuperAdminNotifs = null;
+
         async function loadSuperAdminNotifications() {
-            try {
-                const nq = query(collection(db, collections.adminNotifications), where("type", "==", "admin_master"));
-                const nsnap = await getDocs(nq);
-                state.superAdminNotifications = nsnap.docs.map(d => ({ id: d.id, ...d.data() }))
-                    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-            } catch (err) {
-                console.warn("Erro ao carregar notificações do admin:", err);
-                state.superAdminNotifications = [];
-            }
+            return new Promise((resolve) => {
+                // Previne múltiplos ouvintes simultâneos
+                if (window.unsubSuperAdminNotifs) {
+                    resolve();
+                    return;
+                }
+                try {
+                    const nq = query(collection(db, collections.adminNotifications), where("type", "==", "admin_master"));
+                    // Transforma em ouvinte tempo real
+                    window.unsubSuperAdminNotifs = onSnapshot(nq, (nsnap) => {
+                        const oldCount = state.superAdminNotifications.length;
+                        state.superAdminNotifications = nsnap.docs.map(d => ({ id: d.id, ...d.data() }))
+                            .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+                        
+                        const newCount = state.superAdminNotifications.length;
+                        
+                        if (window.location.hash.startsWith('#/superadmin') && document.getElementById('superadmin-content')) {
+                            const route = window.location.hash.split('/')[2] || 'dashboard';
+                            document.getElementById('superadmin-content').innerHTML = getSuperAdminContent(route);
+                            
+                            // Atualiza os emblemas visuais (badges) de notificação não lida
+                            const unreadCount = state.superAdminNotifications.filter(n => !n.read).length;
+                            
+                            const badgeHTML = unreadCount > 0 ? `<span class="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full ring-2 ring-white"></span>` : '';
+                            const headerBell = document.querySelector('header a[title="Notificações"]');
+                            if (headerBell) headerBell.innerHTML = `<i class="fas fa-bell text-lg"></i>${badgeHTML}`;
+                            
+                            const sidebarBadgeHTML = unreadCount > 0 ? `<span class="bg-red-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full animate-pulse">${unreadCount}</span>` : '';
+                            const sidebarLink = document.querySelector('aside nav a[href="#/superadmin/notificacoes"]');
+                            if (sidebarLink) sidebarLink.innerHTML = `<div class="flex items-center gap-3"><i class="fas fa-bell w-5"></i> Notificações</div>${sidebarBadgeHTML}`;
+                            
+                            // Emite alerta visual de nova notificação
+                            if (oldCount > 0 && newCount > oldCount) {
+                                showToast('Nova notificação recebida!', 'success');
+                            }
+                        }
+                        resolve();
+                    }, (err) => {
+                        console.warn("Erro ao carregar notificações do admin:", err);
+                        state.superAdminNotifications = [];
+                        resolve();
+                    });
+                } catch (err) {
+                    console.warn(err);
+                    resolve();
+                }
+            });
         }
 
         window.renderLanding = function(container) {
@@ -519,16 +559,48 @@
             state.currentUser = null;
             state.currentTenant = null;
             state.isSuperAdmin = false;
+            
+            // Limpa os ouvintes de tempo real ao sair
+            if (window.unsubSuperAdminTenants) {
+                window.unsubSuperAdminTenants();
+                window.unsubSuperAdminTenants = null;
+            }
+            if (window.unsubSuperAdminNotifs) {
+                window.unsubSuperAdminNotifs();
+                window.unsubSuperAdminNotifs = null;
+            }
+            
             window.location.hash = '#/';
         }
 
+        window.unsubSuperAdminTenants = null;
+
         async function loadSuperAdminData() {
             if (!state.isSuperAdmin) return;
-            const tenantsSnap = await getDocs(collection(db, collections.tenants));
-            state.superAdminTenants = tenantsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
             
+            // Carrega lojistas também com ouvinte em tempo real
+            const tenantsPromise = new Promise((resolve) => {
+                if (window.unsubSuperAdminTenants) {
+                    resolve();
+                    return;
+                }
+                window.unsubSuperAdminTenants = onSnapshot(collection(db, collections.tenants), (snap) => {
+                    state.superAdminTenants = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                    
+                    if (window.location.hash.startsWith('#/superadmin') && document.getElementById('superadmin-content')) {
+                        const route = window.location.hash.split('/')[2] || 'dashboard';
+                        document.getElementById('superadmin-content').innerHTML = getSuperAdminContent(route);
+                    }
+                    resolve();
+                }, (err) => {
+                    console.warn("Erro listener tenants:", err);
+                    resolve();
+                });
+            });
+
+            await tenantsPromise;
             await loadSuperAdminNotifications();
-            await checkPlanExpirations(); // Nova checagem de vencimentos
+            await checkPlanExpirations(); 
             
             const contentDiv = document.getElementById('superadmin-content');
             if (contentDiv) {
