@@ -42,52 +42,19 @@
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         .overlay { background-color: rgba(0, 0, 0, 0.5); backdrop-filter: blur(4px); }
         
-        /* Ajuste para altura das imagens no mobile */
         @media (max-width: 768px) {
-            .product-image-mobile {
-                height: 130px !important;
-            }
+            .product-image-mobile { height: 130px !important; }
         }
         
-        /* Estilos para o Cropper */
-        .cropper-container {
-            max-height: 400px;
-        }
-        
-        .cropper-modal {
-            background-color: #000;
-            opacity: 0.5;
-        }
-        
-        .cropper-view-box {
-            border-radius: 8px;
-            outline: 2px solid #ef4444;
-        }
-        
-        .cropper-face {
-            border-radius: 8px;
-        }
+        .cropper-container { max-height: 400px; }
+        .cropper-modal { background-color: #000; opacity: 0.5; }
+        .cropper-view-box { border-radius: 8px; outline: 2px solid #ef4444; }
+        .cropper-face { border-radius: 8px; }
 
-        /* Estilos Drag and Drop para reordenar cardápio */
-        .sortable-ghost {
-            opacity: 0.35 !important;
-            transform: scale(0.97);
-            border: 2px dashed #ef4444 !important;
-            background-color: #fef2f2 !important;
-        }
-        .sortable-chosen {
-            box-shadow: 0 12px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
-        }
-        .sortable-drag {
-            cursor: grabbing !important;
-            opacity: 0.95;
-            transform: rotate(1deg);
-        }
-        .drag-handle {
-            touch-action: none;
-            user-select: none;
-            -webkit-user-select: none;
-        }
+        .sortable-ghost { opacity: 0.35 !important; transform: scale(0.97); border: 2px dashed #ef4444 !important; background-color: #fef2f2 !important; }
+        .sortable-chosen { box-shadow: 0 12px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1); }
+        .sortable-drag { cursor: grabbing !important; opacity: 0.95; transform: rotate(1deg); }
+        .drag-handle { touch-action: none; user-select: none; -webkit-user-select: none; }
     </style>
 </head>
 <body class="text-gray-800 antialiased overflow-x-hidden">
@@ -120,7 +87,6 @@
         const db = getFirestore(app);
         const auth = getAuth(app);
 
-        // App Secundário: Permite ao Super Admin criar contas de restaurantes sem deslogar
         const secondaryApp = initializeApp(firebaseConfig, "SecondaryApp");
         const secondaryAuth = getAuth(secondaryApp);
 
@@ -251,7 +217,6 @@
                             console.error("Erro ao carregar perfil da loja:", e);
                         }
                     } else {
-                        // Carregar notificações do admin master
                         await loadSuperAdminNotifications();
                     }
                 } else {
@@ -382,6 +347,16 @@
                                         <input type="text" id="restaurant-slug" placeholder="sua-loja" required class="flex-1 min-w-0 block w-full px-3 py-3 font-mono text-sm outline-none bg-gray-50 focus:bg-white" onkeyup="this.value = this.value.toLowerCase().replace(/[^a-z0-9-]/g, '')">
                                     </div>
                                 </div>
+                                <div>
+                                    <label class="block text-sm font-bold text-gray-700 mb-1">WhatsApp</label>
+                                    <div class="relative">
+                                        <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-gray-400">
+                                            <i class="fab fa-whatsapp"></i>
+                                        </div>
+                                        <input type="tel" id="restaurant-phone" placeholder="(11) 99999-9999" class="w-full pl-11 pr-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition bg-gray-50 focus:bg-white">
+                                    </div>
+                                    <p class="text-xs text-gray-400 mt-1">Número para contato dos clientes</p>
+                                </div>
                             ` : ''}
                             
                             <div>
@@ -436,6 +411,7 @@
                 if (isRegister && !isAdmin) {
                     const name = document.getElementById('restaurant-name').value;
                     const slug = document.getElementById('restaurant-slug').value;
+                    const phone = document.getElementById('restaurant-phone').value.trim();
                     
                     if(slug.length < 3) throw new Error("Link deve ter pelo menos 3 caracteres.");
 
@@ -445,8 +421,9 @@
                     await setDoc(doc(db, collections.tenants, userCreds.user.uid), {
                         name: name,
                         slug: slug,
+                        phone: phone,
                         email: email,
-                        password: password, // Armazenando a senha para referência
+                        password: password,
                         status: 'active',
                         plan: 'trial',
                         createdAt: serverTimestamp(),
@@ -459,7 +436,6 @@
                         }
                     });
 
-                    // Criar notificação para o admin master
                     await createAdminNotification({
                         type: 'admin_master',
                         title: 'Novo Cliente Cadastrado',
@@ -497,7 +473,6 @@
                     read: false
                 });
                 
-                // Atualizar estado local
                 if (state.isSuperAdmin) {
                     state.superAdminNotifications.unshift({
                         id: notifRef.id,
@@ -593,7 +568,6 @@
             const mrr = state.superAdminTenants.reduce((sum, t) => sum + (t.status !== 'canceled' && t.status !== 'suspended' ? (t.planPrice !== undefined ? Number(t.planPrice) : 99.90) : 0), 0);
 
             return `
-                <!-- Notificações Recentes -->
                 <div class="mb-8">
                     <h3 class="font-bold text-gray-800 text-lg mb-4 flex items-center gap-2">
                         <i class="fas fa-bell text-purple-600"></i> Notificações Recentes
@@ -927,7 +901,6 @@
             }
 
             try {
-                // Verificar se o slug foi alterado e já existe
                 const oldTenant = state.superAdminTenants.find(t => t.id === tenantId);
                 if (oldTenant && oldTenant.slug !== slug) {
                     const q = query(collection(db, collections.tenants), where("slug", "==", slug));
@@ -952,7 +925,6 @@
                     lastModified: Date.now()
                 };
 
-                // Adicionar senha apenas se foi alterada
                 if (password) {
                     updatedPayload.password = password;
                 }
@@ -964,7 +936,6 @@
                     state.superAdminTenants[index] = { ...state.superAdminTenants[index], ...updatedPayload };
                 }
 
-                // Criar notificação se email ou senha foram alterados
                 if (oldTenant && (oldTenant.email !== email || oldTenant.password !== password)) {
                     const changes = [];
                     if (oldTenant.email !== email) {
@@ -1103,7 +1074,6 @@
 
                 await signOutSecondary(secondaryAuth);
 
-                // Criar notificação para o admin master
                 await createAdminNotification({
                     type: 'admin_master',
                     title: 'Novo Cliente Cadastrado',
@@ -1122,9 +1092,6 @@
                 btn.disabled = false;
             }
         }
-
-        // ... resto do código permanece igual ...
-        // (Mantendo todas as funções existentes sem alterações)
 
         let sortableInstance = null;
         window.initAdminSortable = function() {
@@ -1254,8 +1221,16 @@
                 <div class="flex h-screen bg-gray-50 fade-in text-sm">
                     <aside class="w-64 bg-gray-900 text-white flex flex-col hidden md:flex">
                         <div class="p-6 border-b border-gray-800">
-                            <div class="font-black text-xl flex items-center gap-2"><i class="fas fa-store text-brand-500"></i> ${tenant?.name || 'Carregando...'}</div>
-                            <div class="mt-2 text-xs text-gray-400 font-mono truncate"><a href="#/cardapio/${tenant?.slug}" target="_blank" class="hover:text-white">wa.com/${tenant?.slug}</a></div>
+                            <div class="font-black text-xl flex items-center gap-2">
+                                <i class="fas fa-store text-brand-500"></i> ${tenant?.name || 'Carregando...'}
+                            </div>
+                            <div class="mt-2 text-xs text-gray-400 font-mono truncate flex items-center gap-2">
+                                <i class="fab fa-whatsapp text-green-500"></i>
+                                <span>${tenant?.phone || 'WhatsApp não informado'}</span>
+                            </div>
+                            <div class="mt-1 text-xs text-gray-400 font-mono truncate">
+                                <a href="#/cardapio/${tenant?.slug}" target="_blank" class="hover:text-white">wa.com/${tenant?.slug}</a>
+                            </div>
                         </div>
                         <nav class="flex-grow px-4 space-y-1 mt-4">
                             <a href="#/admin/notificacoes" class="flex items-center justify-between px-4 py-3 rounded-xl transition ${subRoute === 'notificacoes' ? 'bg-brand-600 font-bold text-white shadow-lg shadow-brand-600/30' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}">
@@ -2160,6 +2135,10 @@
             const order = state.adminOrders.find(o => o.id === orderId);
             if (!order) return;
 
+            // Verifica se o tenant tem WhatsApp cadastrado
+            const tenantPhone = state.currentTenant?.phone || 'Não informado';
+            const hasWhatsApp = tenantPhone !== 'Não informado' && tenantPhone.length > 0;
+
             const html = `
                 <div class="fixed inset-0 z-50 flex items-center justify-center p-4 overlay fade-in">
                     <div class="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
@@ -2174,6 +2153,27 @@
                         </div>
                         
                         <div class="p-6 overflow-y-auto flex-grow space-y-5">
+                            <!-- WhatsApp do Lojista -->
+                            <div class="p-4 rounded-2xl border ${hasWhatsApp ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-10 h-10 ${hasWhatsApp ? 'bg-green-100 text-green-600' : 'bg-gray-200 text-gray-400'} rounded-xl flex items-center justify-center text-lg shrink-0">
+                                        <i class="fab fa-whatsapp"></i>
+                                    </div>
+                                    <div class="flex-grow">
+                                        <p class="text-xs font-bold ${hasWhatsApp ? 'text-green-800' : 'text-gray-500'}">WhatsApp do Restaurante (Contato para Dúvidas)</p>
+                                        <div class="flex items-center gap-2">
+                                            <p class="text-sm font-bold ${hasWhatsApp ? 'text-green-700' : 'text-gray-400'}">${tenantPhone}</p>
+                                            ${hasWhatsApp ? `
+                                                <a href="https://wa.me/55${tenantPhone.replace(/[^0-9]/g, '')}" target="_blank" class="text-xs bg-green-500 text-white px-3 py-1 rounded-full font-bold hover:bg-green-600 transition shadow-sm">
+                                                    <i class="fas fa-comment"></i> Falar com Lojista
+                                                </a>
+                                            ` : ''}
+                                        </div>
+                                        ${!hasWhatsApp ? '<p class="text-[10px] text-gray-400 mt-1">O lojista ainda não cadastrou um número de WhatsApp.</p>' : ''}
+                                    </div>
+                                </div>
+                            </div>
+
                             <form id="order-edit-form" onsubmit="saveOrderEdits(event, '${order.id}')" class="space-y-4">
                                 <div class="bg-brand-50/50 p-4 rounded-2xl border border-brand-100">
                                     <h4 class="font-black text-xs uppercase tracking-wider text-brand-900 mb-3 flex items-center gap-1.5">
