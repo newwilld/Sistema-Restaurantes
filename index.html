@@ -382,7 +382,7 @@
 
                         ${!isAdmin ? `
                         <div class="mt-6 text-center text-sm text-gray-600 font-medium">
-                            ${isRegister ? 
+                            ${isRegister ?  
                                 `Já tem sua loja? <a href="javascript:void(0)" onclick="renderAuthUI(document.getElementById('app'), false)" class="text-brand-600 hover:underline">Fazer Login</a>` : 
                                 `Ainda não é parceiro? <a href="javascript:void(0)" onclick="renderAuthUI(document.getElementById('app'), true)" class="text-brand-600 hover:underline">Cadastre-se</a>`
                             }
@@ -418,7 +418,7 @@
                     const userCreds = await createUserWithEmailAndPassword(auth, email, password);
                     await updateProfile(userCreds.user, { displayName: name });
                     
-                    await setDoc(doc(db, collections.tenants, userCreds.user.uid), {
+                    const tenantData = {
                         name: name,
                         slug: slug,
                         phone: phone,
@@ -434,7 +434,9 @@
                             coverImage: '',
                             profileImage: ''
                         }
-                    });
+                    };
+
+                    await setDoc(doc(db, collections.tenants, userCreds.user.uid), tenantData);
 
                     await createAdminNotification({
                         type: 'admin_master',
@@ -445,13 +447,39 @@
                         action: 'novo_cliente'
                     });
 
+                    // Otimização: Popula os dados imediatamente no state local para evitar atraso/travamento.
+                    state.currentUser = userCreds.user;
+                    state.currentTenant = { id: userCreds.user.uid, ...tenantData };
+                    state.isSuperAdmin = false;
+
                     showToast('Restaurante criado com sucesso! Bem-vindo(a).');
+                    window.location.hash = '#/admin';
+
                 } else {
-                    await signInWithEmailAndPassword(auth, email, password);
+                    const userCreds = await signInWithEmailAndPassword(auth, email, password);
                     if (isAdmin && email !== 'willdalves1@gmail.com') {
                         throw new Error("Acesso administrativo negado.");
                     }
+                    
+                    // Otimização: Popula e recupera os dados na mesma requisição para transição rápida.
+                    state.currentUser = userCreds.user;
+                    state.isSuperAdmin = (email === 'willdalves1@gmail.com');
+                    
+                    if (!state.isSuperAdmin) {
+                        const docRef = doc(db, collections.tenants, userCreds.user.uid);
+                        const docSnap = await getDoc(docRef);
+                        if (docSnap.exists()) {
+                            state.currentTenant = { id: docSnap.id, ...docSnap.data() };
+                        } else {
+                            state.currentTenant = null;
+                        }
+                    } else {
+                        await loadSuperAdminNotifications();
+                    }
+
                     showToast('Acesso liberado.');
+                    // Força a navegação imediatamente
+                    window.location.hash = state.isSuperAdmin ? '#/superadmin' : '#/admin';
                 }
             } catch (error) {
                 console.error(error);
@@ -2135,7 +2163,6 @@
             const order = state.adminOrders.find(o => o.id === orderId);
             if (!order) return;
 
-            // Verifica se o tenant tem WhatsApp cadastrado
             const tenantPhone = state.currentTenant?.phone || 'Não informado';
             const hasWhatsApp = tenantPhone !== 'Não informado' && tenantPhone.length > 0;
 
@@ -2153,7 +2180,6 @@
                         </div>
                         
                         <div class="p-6 overflow-y-auto flex-grow space-y-5">
-                            <!-- WhatsApp do Lojista -->
                             <div class="p-4 rounded-2xl border ${hasWhatsApp ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}">
                                 <div class="flex items-center gap-3">
                                     <div class="w-10 h-10 ${hasWhatsApp ? 'bg-green-100 text-green-600' : 'bg-gray-200 text-gray-400'} rounded-xl flex items-center justify-center text-lg shrink-0">
