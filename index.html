@@ -55,6 +55,20 @@
         .sortable-chosen { box-shadow: 0 12px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1); }
         .sortable-drag { cursor: grabbing !important; opacity: 0.95; transform: rotate(1deg); }
         .drag-handle { touch-action: none; user-select: none; -webkit-user-select: none; }
+
+        .auth-loading { position: relative; }
+        .auth-loading::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: rgba(255,255,255,0.7);
+            backdrop-filter: blur(2px);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+        }
     </style>
 </head>
 <body class="text-gray-800 antialiased overflow-x-hidden">
@@ -116,7 +130,9 @@
             superAdminOrders: [],
             superAdminNotifications: [],
             
-            isAppLoaded: false
+            isAppLoaded: false,
+            _authInProgress: false,
+            _isLoadingOrders: false
         };
 
         function generateId() {
@@ -151,8 +167,14 @@
             handleRoute();
         }
 
+        let lastRoute = '';
+
         async function handleRoute() {
             const hash = window.location.hash;
+            
+            if (hash === lastRoute && state.isAppLoaded) return;
+            lastRoute = hash;
+
             const appDiv = document.getElementById('app');
 
             if (!state.isAppLoaded) return;
@@ -233,7 +255,10 @@
                     state.isAppLoaded = true;
                     handleRoute();
                 } else {
-                    handleRoute();
+                    const currentHash = window.location.hash;
+                    if (currentHash.startsWith('#/admin') || currentHash.startsWith('#/superadmin')) {
+                        handleRoute();
+                    }
                 }
             });
         }
@@ -452,8 +477,22 @@
             `;
         }
 
+        function redirectAfterAuth(shouldNavigateToAdmin = true) {
+            if (state.isSuperAdmin) {
+                window.location.hash = '#/superadmin';
+            } else if (shouldNavigateToAdmin && state.currentTenant) {
+                window.location.hash = '#/admin';
+            } else {
+                window.location.hash = '#/';
+            }
+        }
+
         window.handleAuthSubmit = async function(event, isRegister, isAdmin) {
             event.preventDefault();
+            
+            if (state._authInProgress) return;
+            state._authInProgress = true;
+            
             const btn = document.getElementById('auth-btn');
             const originalText = btn.innerHTML;
             btn.innerHTML = '<div class="loader w-5 h-5 border-2 border-white border-t-transparent mx-auto"></div>';
@@ -469,6 +508,12 @@
                     const phone = document.getElementById('restaurant-phone').value.trim();
                     
                     if(slug.length < 3) throw new Error("Link deve ter pelo menos 3 caracteres.");
+
+                    const slugQuery = query(collection(db, collections.tenants), where("slug", "==", slug));
+                    const slugSnap = await getDocs(slugQuery);
+                    if (!slugSnap.empty) {
+                        throw new Error("Este link de cardápio já está em uso. Escolha outro.");
+                    }
 
                     const userCreds = await createUserWithEmailAndPassword(auth, email, password);
                     await updateProfile(userCreds.user, { displayName: name });
@@ -511,11 +556,19 @@
                     state.isSuperAdmin = false;
 
                     showToast('Restaurante criado com sucesso! Bem-vindo(a).');
+                    
+                    btn.innerHTML = originalText;
+                    btn.disabled = false;
+                    state._authInProgress = false;
+                    
                     window.location.hash = '#/admin';
+                    setTimeout(() => handleRoute(), 100);
 
                 } else {
                     const userCreds = await signInWithEmailAndPassword(auth, email, password);
+                    
                     if (isAdmin && email !== 'willdalves1@gmail.com') {
+                        await signOut(auth);
                         throw new Error("Acesso administrativo negado.");
                     }
                     
@@ -529,6 +582,7 @@
                             state.currentTenant = { id: docSnap.id, ...docSnap.data() };
                         } else {
                             state.currentTenant = null;
+                            throw new Error("Conta não possui um restaurante vinculado.");
                         }
                     } else {
                         try {
@@ -539,16 +593,24 @@
                     }
 
                     showToast('Acesso liberado.');
-                    window.location.hash = state.isSuperAdmin ? '#/superadmin' : '#/admin';
+                    
+                    btn.innerHTML = originalText;
+                    btn.disabled = false;
+                    state._authInProgress = false;
+                    
+                    redirectAfterAuth(true);
+                    setTimeout(() => handleRoute(), 100);
                 }
             } catch (error) {
                 console.error(error);
                 let msg = error.message;
                 if(error.code === 'auth/email-already-in-use') msg = "E-mail já cadastrado.";
                 if(error.code === 'auth/invalid-credential') msg = "E-mail ou senha incorretos.";
+                if(error.message.includes("link de cardápio já está em uso")) msg = error.message;
                 showToast(msg, 'error');
                 btn.innerHTML = originalText;
                 btn.disabled = false;
+                state._authInProgress = false;
             }
         }
 
@@ -597,12 +659,12 @@
                 window.unsubSuperAdminNotifs = null;
             }
             
+            state._authInProgress = false;
             window.location.hash = '#/';
         }
 
         window.unsubSuperAdminTenants = null;
 
-        // Função para limpar dados de um tenant removido
         async function cleanupTenantData(tenantId) {
             console.log("Limpando dados do tenant removido:", tenantId);
             
@@ -714,7 +776,48 @@
                 contentDiv.innerHTML = getSuperAdminContent(window.location.hash.split('/')[2] || 'dashboard');
             }
         }
-                async function checkPlanExpirations() {
+
+        async function toggleRestaurantStatus(tenantId, currentStatus) {
+            const newStatus = currentStatus === 'open' ? 'closed' : 'open';
+            const statusLabel = newStatus === 'open' ? 'Aberto' : 'Fechado';
+            
+            try {
+                const tenantRef = doc(db, collections.tenants, tenantId);
+                await updateDoc(tenantRef, {
+                    'settings.open': newStatus === 'open'
+                });
+                
+                if (state.currentTenant && state.currentTenant.id === tenantId) {
+                    state.currentTenant.settings.open = newStatus === 'open';
+                }
+                
+                showToast(`Cardápio agora está ${statusLabel}!`);
+                
+                if (window.location.hash.startsWith('#/cardapio/')) {
+                    const slug = window.location.hash.split('/')[2];
+                    await loadPublicMenuData(slug);
+                    renderPublicMenu(document.getElementById('app'));
+                }
+                
+                if (window.location.hash.startsWith('#/admin')) {
+                    const contentDiv = document.getElementById('admin-content');
+                    if (contentDiv) {
+                        const subRoute = window.location.hash.split('/')[2] || 'dashboard';
+                        contentDiv.innerHTML = getAdminContent(subRoute);
+                    }
+                }
+                
+                return true;
+            } catch (err) {
+                console.error("Erro ao alterar status:", err);
+                showToast("Erro ao alterar status do cardápio.", "error");
+                return false;
+            }
+        }
+
+        window.toggleRestaurantStatus = toggleRestaurantStatus;
+
+        async function checkPlanExpirations() {
             if (!state.isSuperAdmin) return;
             const batch = writeBatch(db);
             let hasUpdates = false;
@@ -783,7 +886,7 @@
 
             container.innerHTML = `
                 <div class="flex h-screen bg-gray-50 fade-in text-sm">
-                    <aside class="w-64 bg-[#0f172a] text-white flex flex-col border-r border-gray-800">
+                    <aside class="w-64 bg-[#0f172a] text-white flex-col hidden md:flex shrink-0">
                         <div class="p-6">
                             <div class="font-black text-xl flex items-center gap-2 mb-1"><i class="fas fa-shield-alt text-purple-500"></i> WA Admin</div>
                             <div class="text-xs text-gray-400 uppercase tracking-widest font-bold">Plataforma SaaS</div>
@@ -1253,7 +1356,8 @@
                 btn.innerHTML = '<i class="fas fa-save"></i> Salvar Alterações';
             }
         };
-                window.openCreateTenantModal = function() {
+
+        window.openCreateTenantModal = function() {
             const d = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
             const defaultRenewal = d.toISOString().split('T')[0];
 
@@ -1449,8 +1553,127 @@
             }
         };
 
+        // ==================== FUNÇÃO RENDER ADMIN ORDERS (DEFINIDA ANTES DO USO) ====================
+        function renderAdminOrders() {
+            const getStatusBadge = (status) => {
+                switch(status) {
+                    case 'novo': return `<span class="px-2.5 py-1 bg-blue-100 text-blue-700 rounded-lg text-xs font-bold border border-blue-200 uppercase">Novo</span>`;
+                    case 'preparando': return `<span class="px-2.5 py-1 bg-yellow-100 text-yellow-700 rounded-lg text-xs font-bold border border-yellow-200 uppercase">Preparando</span>`;
+                    case 'entrega': return `<span class="px-2.5 py-1 bg-purple-100 text-purple-700 rounded-lg text-xs font-bold border border-purple-200 uppercase">Em Entrega</span>`;
+                    case 'entregue': return `<span class="px-2.5 py-1 bg-green-100 text-green-700 rounded-lg text-xs font-bold border border-green-200 uppercase">Entregue</span>`;
+                    case 'cancelado': return `<span class="px-2.5 py-1 bg-red-100 text-red-700 rounded-lg text-xs font-bold border border-red-200 uppercase">Cancelado</span>`;
+                    default: return `<span class="px-2.5 py-1 bg-gray-100 text-gray-700 rounded-lg text-xs font-bold border border-gray-200 uppercase">${status || 'Novo'}</span>`;
+                }
+            };
+
+            if (state.adminOrders.length === 0) {
+                return `
+                    <div class="flex flex-col items-center justify-center p-12 text-center">
+                        <div class="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center text-4xl text-gray-300 mb-4">
+                            <i class="fas fa-receipt"></i>
+                        </div>
+                        <h3 class="text-xl font-bold text-gray-800 mb-2">Nenhum pedido ainda</h3>
+                        <p class="text-gray-500 text-sm max-w-md">Quando os clientes realizarem pedidos através do seu cardápio, eles aparecerão aqui.</p>
+                        <div class="mt-4 flex gap-3">
+                            <a href="#/cardapio/${state.currentTenant?.slug}" target="_blank" class="bg-brand-500 text-white px-5 py-2.5 rounded-xl font-bold hover:bg-brand-600 transition shadow-lg shadow-brand-500/30 flex items-center gap-2 text-sm">
+                                <i class="fas fa-external-link-alt"></i> Ver Cardápio
+                            </a>
+                        </div>
+                    </div>
+                `;
+            }
+
+            return `
+                <div class="flex justify-between items-center mb-6">
+                    <div>
+                        <h3 class="font-bold text-gray-800 text-lg">Histórico e Gestão de Pedidos</h3>
+                        <p class="text-xs text-gray-500">Clique no nome do cliente ou no botão para abrir os detalhes e editar as informações do pedido.</p>
+                    </div>
+                </div>
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left">
+                            <thead class="bg-gray-50 text-xs uppercase text-gray-500 font-bold border-b border-gray-100">
+                                <tr>
+                                    <th class="p-4">Cliente</th>
+                                    <th class="p-4">Endereço de Entrega</th>
+                                    <th class="p-4">Itens & Obs</th>
+                                    <th class="p-4">Total</th>
+                                    <th class="p-4">Status</th>
+                                    <th class="p-4 text-right">Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100 text-sm">
+                                ${state.adminOrders.map(o => `
+                                    <tr class="hover:bg-gray-50/80 transition group">
+                                        <td class="p-4">
+                                            <div class="flex items-center gap-3 cursor-pointer" onclick="openOrderDetailsModal('${o.id}')">
+                                                <div class="w-10 h-10 rounded-xl bg-brand-50 text-brand-600 font-black flex items-center justify-center text-sm shadow-sm group-hover:bg-brand-500 group-hover:text-white transition shrink-0">
+                                                    ${(o.customer?.name || 'C').charAt(0).toUpperCase()}
+                                                </div>
+                                                <div>
+                                                    <div class="font-bold text-gray-900 group-hover:text-brand-600 transition flex items-center gap-1.5">
+                                                        <span>${o.customer?.name || 'Sem Nome'}</span>
+                                                        <i class="fas fa-edit text-[11px] text-gray-400 group-hover:text-brand-500"></i>
+                                                    </div>
+                                                    <span class="text-xs text-gray-400 font-mono">${o.customer?.phone || 'Sem telefone'}</span>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td class="p-4 text-xs text-gray-600 max-w-[200px]">
+                                            <div class="truncate font-medium">${o.customer?.address || '<span class="text-gray-400 italic">Não informado</span>'}</div>
+                                        </td>
+                                        <td class="p-4">
+                                            <div class="text-xs font-semibold text-gray-800">${o.items.length} item(ns)</div>
+                                            ${o.observations ? `<div class="text-[11px] text-amber-600 italic truncate max-w-[180px]" title="${o.observations}"><i class="fas fa-comment-alt mr-1"></i>${o.observations}</div>` : ''}
+                                        </td>
+                                        <td class="p-4 font-black text-brand-600">${(o.total || 0).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</td>
+                                        <td class="p-4">${getStatusBadge(o.status)}</td>
+                                        <td class="p-4 text-right">
+                                            <button onclick="openOrderDetailsModal('${o.id}')" class="bg-gray-100 hover:bg-brand-500 hover:text-white text-gray-700 px-3.5 py-1.5 rounded-xl text-xs font-bold transition inline-flex items-center gap-1.5 shadow-sm">
+                                                <i class="fas fa-edit"></i> Ver / Editar
+                                            </button>
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        }
+
+        // ==================== FUNÇÃO GET ADMIN CONTENT ====================
+        function getAdminContent(route) {
+            if (route === 'notificacoes') return renderAdminNotifications();
+            if (route === 'cardapio') return renderAdminMenuBuilder();
+            if (route === 'pedidos') return renderAdminOrders();
+            if (route === 'configuracoes') return renderAdminSettings();
+            
+            const faturamento = state.adminOrders.reduce((sum, o) => sum + (o.status !== 'cancelado' ? o.total : 0), 0);
+            return `
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                    <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+                        <p class="text-gray-500 font-bold mb-1 uppercase text-xs">Vendas Totais</p>
+                        <h3 class="text-3xl font-black text-gray-800">${faturamento.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</h3>
+                    </div>
+                    <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+                        <p class="text-gray-500 font-bold mb-1 uppercase text-xs">Pedidos</p>
+                        <h3 class="text-3xl font-black text-gray-800">${state.adminOrders.length}</h3>
+                    </div>
+                    <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+                        <p class="text-gray-500 font-bold mb-1 uppercase text-xs">Produtos Cadastrados</p>
+                        <h3 class="text-3xl font-black text-gray-800">${state.adminProducts.length}</h3>
+                    </div>
+                </div>
+            `;
+        }
+
+        // ==================== CARREGAR DADOS DO ADMIN ====================
         async function loadAdminData() {
             if (!state.currentTenant) return;
+            
+            // Carrega produtos
             const q = query(collection(db, collections.products), where("tenantId", "==", state.currentTenant.id));
             const snap = await getDocs(q);
             state.adminProducts = snap.docs.map(d => ({ id: d.id, ...d.data() }))
@@ -1461,10 +1684,20 @@
                     return (a.createdAt || 0) - (b.createdAt || 0);
                 });
             
-            const oq = query(collection(db, collections.orders), where("tenantId", "==", state.currentTenant.id));
-            const osnap = await getDocs(oq);
-            state.adminOrders = osnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (b.createdAt || 0) - (a.createdAt || 0));
+            // Carrega pedidos com tratamento de erro e estado de carregamento
+            try {
+                state._isLoadingOrders = true;
+                const oq = query(collection(db, collections.orders), where("tenantId", "==", state.currentTenant.id));
+                const osnap = await getDocs(oq);
+                state.adminOrders = osnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (b.createdAt || 0) - (a.createdAt || 0));
+                state._isLoadingOrders = false;
+            } catch (err) {
+                console.warn("Erro ao carregar pedidos:", err);
+                state.adminOrders = [];
+                state._isLoadingOrders = false;
+            }
 
+            // Carrega notificações
             let notifsFromCollection = [];
             try {
                 const nq = query(collection(db, collections.notifications), where("tenantId", "==", state.currentTenant.id));
@@ -1488,6 +1721,7 @@
 
             state.adminNotifications = Array.from(notifsMap.values()).sort((a,b) => (b.createdAt || 0) - (a.createdAt || 0));
 
+            // Atualiza a UI
             const contentDiv = document.getElementById('admin-content');
             if (contentDiv) {
                 const subRoute = window.location.hash.split('/')[2] || 'dashboard';
@@ -1498,95 +1732,112 @@
             }
         }
 
+        // ==================== RENDER ADMIN ====================
         window.renderAdmin = function(container, hash) {
-            loadAdminData();
-            const subRoute = hash.split('/')[2] || 'dashboard';
-            const tenant = state.currentTenant;
-            const unreadCount = state.adminNotifications.filter(n => !n.read).length;
+            // Carrega os dados primeiro
+            loadAdminData().then(() => {
+                const subRoute = hash.split('/')[2] || 'dashboard';
+                const tenant = state.currentTenant;
+                const unreadCount = state.adminNotifications.filter(n => !n.read).length;
+                
+                const isOpen = tenant?.settings?.open !== undefined ? tenant.settings.open : true;
+                const statusLabel = isOpen ? 'Aberto' : 'Fechado';
 
-            container.innerHTML = `
-                <div class="flex h-screen bg-gray-50 fade-in text-sm flex-col md:flex-row">
-                    <aside class="w-64 bg-gray-900 text-white flex-col hidden md:flex shrink-0">
-                        <div class="p-6 border-b border-gray-800">
-                            <div class="font-black text-xl flex items-center gap-2">
-                                <i class="fas fa-store text-brand-500"></i> ${tenant?.name || 'Carregando...'}
-                            </div>
-                            <div class="mt-2 text-xs text-gray-400 font-mono truncate flex items-center gap-2">
-                                <i class="fab fa-whatsapp text-green-500"></i>
-                                <span>${tenant?.phone || 'WhatsApp não informado'}</span>
-                            </div>
-                            <div class="mt-1 text-xs text-gray-400 font-mono truncate">
-                                <a href="#/cardapio/${tenant?.slug}" target="_blank" class="hover:text-white">wa.com/${tenant?.slug}</a>
-                            </div>
-                        </div>
-                        <nav class="flex-grow px-4 space-y-1 mt-4">
-                            <a href="#/admin/notificacoes" class="flex items-center justify-between px-4 py-3 rounded-xl transition ${subRoute === 'notificacoes' ? 'bg-brand-600 font-bold text-white shadow-lg shadow-brand-600/30' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}">
-                                <div class="flex items-center gap-3">
-                                    <i class="fas fa-bell w-5"></i> Notificações
+                container.innerHTML = `
+                    <div class="flex h-screen bg-gray-50 fade-in text-sm flex-col md:flex-row">
+                        <aside class="w-64 bg-gray-900 text-white flex-col hidden md:flex shrink-0">
+                            <div class="p-6 border-b border-gray-800">
+                                <div class="font-black text-xl flex items-center gap-2">
+                                    <i class="fas fa-store text-brand-500"></i> ${tenant?.name || 'Carregando...'}
                                 </div>
-                                ${unreadCount > 0 ? `<span class="bg-red-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full animate-pulse">${unreadCount}</span>` : ''}
-                            </a>
-                            <a href="#/admin/dashboard" class="flex items-center gap-3 px-4 py-3 rounded-xl transition ${subRoute === 'dashboard' ? 'bg-brand-600 font-bold text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-chart-pie w-5"></i> Visão Geral</a>
-                            <a href="#/admin/pedidos" class="flex items-center gap-3 px-4 py-3 rounded-xl transition ${subRoute === 'pedidos' ? 'bg-brand-600 font-bold text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-receipt w-5"></i> Pedidos</a>
-                            <a href="#/admin/cardapio" class="flex items-center gap-3 px-4 py-3 rounded-xl transition ${subRoute === 'cardapio' ? 'bg-brand-600 font-bold text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-utensils w-5"></i> Meu Cardápio</a>
-                            <a href="#/admin/configuracoes" class="flex items-center gap-3 px-4 py-3 rounded-xl transition ${subRoute === 'configuracoes' ? 'bg-brand-600 font-bold text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-cog w-5"></i> Configurações</a>
-                        </nav>
-                        <div class="p-4 border-t border-gray-800">
-                            <button onclick="doLogout()" class="w-full flex items-center gap-3 px-4 py-3 text-red-400 hover:bg-red-500/10 rounded-xl font-bold transition"><i class="fas fa-power-off w-5"></i> Sair do Painel</button>
-                        </div>
-                    </aside>
-                    <main class="flex-grow flex flex-col overflow-hidden relative">
-                        ${tenant?.status === 'suspended' ? `
-                            <div class="bg-red-600 text-white p-4 shrink-0 flex flex-col sm:flex-row items-center justify-between gap-4 z-20 shadow-md">
-                                <div class="flex items-center gap-3">
-                                    <div class="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center shrink-0">
-                                        <i class="fas fa-exclamation-triangle text-xl"></i>
-                                    </div>
-                                    <div>
-                                        <h4 class="font-black text-base">Sistema Congelado</h4>
-                                        <p class="text-xs opacity-90">Seu cardápio público está bloqueado devido a pendências na assinatura.</p>
-                                    </div>
+                                <div class="mt-2 text-xs text-gray-400 font-mono truncate flex items-center gap-2">
+                                    <i class="fab fa-whatsapp text-green-500"></i>
+                                    <span>${tenant?.phone || 'WhatsApp não informado'}</span>
                                 </div>
-                                <button onclick="openRenewalModal()" class="bg-white text-red-600 px-6 py-2.5 rounded-xl font-black shadow-sm hover:bg-red-50 hover:scale-105 transition transform whitespace-nowrap w-full sm:w-auto">
-                                    Renovar Assinatura via Pix
-                                </button>
+                                <div class="mt-1 text-xs text-gray-400 font-mono truncate">
+                                    <a href="#/cardapio/${tenant?.slug}" target="_blank" class="hover:text-white">wa.com/${tenant?.slug}</a>
+                                </div>
+                                <div class="mt-2 flex items-center gap-2">
+                                    <span class="text-xs font-bold uppercase tracking-wider text-gray-400">Status:</span>
+                                    <span class="text-xs font-black px-2 py-0.5 rounded-full ${isOpen ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}">
+                                        ${statusLabel}
+                                    </span>
+                                </div>
                             </div>
-                        ` : ''}
-
-                        <header class="h-16 bg-white border-b px-8 flex items-center justify-between shrink-0 shadow-sm z-10">
-                            <h2 class="text-lg font-bold text-gray-800 capitalize flex items-center gap-2">
-                                <i class="fas ${subRoute === 'notificacoes' ? 'fa-bell text-brand-500' : (subRoute === 'pedidos' ? 'fa-receipt text-blue-500' : (subRoute === 'cardapio' ? 'fa-utensils text-brand-500' : (subRoute === 'configuracoes' ? 'fa-cog text-gray-600' : 'fa-chart-pie text-green-500')))}"></i> 
-                                ${subRoute === 'notificacoes' ? 'Notificações & Histórico' : (subRoute === 'pedidos' ? 'Gestão de Pedidos' : (subRoute === 'cardapio' ? 'Meu Cardápio' : (subRoute === 'configuracoes' ? 'Configurações da Conta' : 'Visão Geral')))}
-                            </h2>
-                            <div class="flex items-center gap-3">
-                                <a href="#/admin/notificacoes" class="relative p-2 text-gray-400 hover:text-brand-500 rounded-xl hover:bg-gray-50 transition" title="Notificações">
-                                    <i class="fas fa-bell text-lg"></i>
-                                    ${unreadCount > 0 ? `<span class="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full ring-2 ring-white"></span>` : ''}
+                            <nav class="flex-grow px-4 space-y-1 mt-4">
+                                <a href="#/admin/notificacoes" class="flex items-center justify-between px-4 py-3 rounded-xl transition ${subRoute === 'notificacoes' ? 'bg-brand-600 font-bold text-white shadow-lg shadow-brand-600/30' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}">
+                                    <div class="flex items-center gap-3">
+                                        <i class="fas fa-bell w-5"></i> Notificações
+                                    </div>
+                                    ${unreadCount > 0 ? `<span class="bg-red-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full animate-pulse">${unreadCount}</span>` : ''}
                                 </a>
-                                <a href="#/cardapio/${tenant?.slug}" target="_blank" class="text-sm font-bold text-brand-600 bg-brand-50 px-4 py-1.5 rounded-full hover:bg-brand-100 transition flex items-center gap-1.5"><i class="fas fa-external-link-alt text-xs"></i> Ver Loja</a>
+                                <a href="#/admin/dashboard" class="flex items-center gap-3 px-4 py-3 rounded-xl transition ${subRoute === 'dashboard' ? 'bg-brand-600 font-bold text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-chart-pie w-5"></i> Visão Geral</a>
+                                <a href="#/admin/pedidos" class="flex items-center gap-3 px-4 py-3 rounded-xl transition ${subRoute === 'pedidos' ? 'bg-brand-600 font-bold text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-receipt w-5"></i> Pedidos</a>
+                                <a href="#/admin/cardapio" class="flex items-center gap-3 px-4 py-3 rounded-xl transition ${subRoute === 'cardapio' ? 'bg-brand-600 font-bold text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-utensils w-5"></i> Meu Cardápio</a>
+                                <a href="#/admin/configuracoes" class="flex items-center gap-3 px-4 py-3 rounded-xl transition ${subRoute === 'configuracoes' ? 'bg-brand-600 font-bold text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-cog w-5"></i> Configurações</a>
+                                <button onclick="toggleRestaurantStatus('${tenant?.id}', '${isOpen ? 'open' : 'closed'}')" 
+                                        class="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition mt-2 ${isOpen ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-red-600 hover:bg-red-700 text-white'} font-bold">
+                                    <i class="fas ${isOpen ? 'fa-toggle-on' : 'fa-toggle-off'} w-5"></i> 
+                                    ${isOpen ? 'Fechar Cardápio' : 'Abrir Cardápio'}
+                                </button>
+                            </nav>
+                            <div class="p-4 border-t border-gray-800">
+                                <button onclick="doLogout()" class="w-full flex items-center gap-3 px-4 py-3 text-red-400 hover:bg-red-500/10 rounded-xl font-bold transition"><i class="fas fa-power-off w-5"></i> Sair do Painel</button>
                             </div>
-                        </header>
-                        <div class="flex-grow p-4 md:p-8 overflow-y-auto" id="admin-content">
-                            <div class="flex justify-center h-full items-center"><div class="loader w-8 h-8 border-4 border-gray-200 border-t-brand-500"></div></div>
-                        </div>
-                        
-                        <div class="md:hidden bg-gray-900 text-white flex justify-around p-3 pb-safe border-t border-gray-800 shrink-0">
-                             <a href="#/admin/dashboard" class="flex flex-col items-center gap-1 ${subRoute === 'dashboard' ? 'text-brand-500' : 'text-gray-400'}"><i class="fas fa-chart-pie text-xl"></i><span class="text-[10px] font-bold">Início</span></a>
-                             <a href="#/admin/pedidos" class="flex flex-col items-center gap-1 ${subRoute === 'pedidos' ? 'text-brand-500' : 'text-gray-400'}"><i class="fas fa-receipt text-xl"></i><span class="text-[10px] font-bold">Pedidos</span></a>
-                             <a href="#/admin/cardapio" class="flex flex-col items-center gap-1 ${subRoute === 'cardapio' ? 'text-brand-500' : 'text-gray-400'}"><i class="fas fa-utensils text-xl"></i><span class="text-[10px] font-bold">Cardápio</span></a>
-                             <a href="#/admin/configuracoes" class="flex flex-col items-center gap-1 ${subRoute === 'configuracoes' ? 'text-brand-500' : 'text-gray-400'}"><i class="fas fa-cog text-xl"></i><span class="text-[10px] font-bold">Ajustes</span></a>
-                        </div>
-                    </main>
-                </div>
-            `;
+                        </aside>
+                        <main class="flex-grow flex flex-col overflow-hidden relative">
+                            ${tenant?.status === 'suspended' ? `
+                                <div class="bg-red-600 text-white p-4 shrink-0 flex flex-col sm:flex-row items-center justify-between gap-4 z-20 shadow-md">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center shrink-0">
+                                            <i class="fas fa-exclamation-triangle text-xl"></i>
+                                        </div>
+                                        <div>
+                                            <h4 class="font-black text-base">Sistema Congelado</h4>
+                                            <p class="text-xs opacity-90">Seu cardápio público está bloqueado devido a pendências na assinatura.</p>
+                                        </div>
+                                    </div>
+                                    <button onclick="openRenewalModal()" class="bg-white text-red-600 px-6 py-2.5 rounded-xl font-black shadow-sm hover:bg-red-50 hover:scale-105 transition transform whitespace-nowrap w-full sm:w-auto">
+                                        Renovar Assinatura via Pix
+                                    </button>
+                                </div>
+                            ` : ''}
 
-            if (subRoute === 'cardapio' && state.adminProducts.length > 0) {
-                const contentDiv = document.getElementById('admin-content');
-                if (contentDiv) {
-                    contentDiv.innerHTML = getAdminContent('cardapio');
-                    initAdminSortable();
+                            <header class="h-16 bg-white border-b px-8 flex items-center justify-between shrink-0 shadow-sm z-10">
+                                <h2 class="text-lg font-bold text-gray-800 capitalize flex items-center gap-2">
+                                    <i class="fas ${subRoute === 'notificacoes' ? 'fa-bell text-brand-500' : (subRoute === 'pedidos' ? 'fa-receipt text-blue-500' : (subRoute === 'cardapio' ? 'fa-utensils text-brand-500' : (subRoute === 'configuracoes' ? 'fa-cog text-gray-600' : 'fa-chart-pie text-green-500')))}"></i> 
+                                    ${subRoute === 'notificacoes' ? 'Notificações & Histórico' : (subRoute === 'pedidos' ? 'Gestão de Pedidos' : (subRoute === 'cardapio' ? 'Meu Cardápio' : (subRoute === 'configuracoes' ? 'Configurações da Conta' : 'Visão Geral')))}
+                                </h2>
+                                <div class="flex items-center gap-3">
+                                    <a href="#/admin/notificacoes" class="relative p-2 text-gray-400 hover:text-brand-500 rounded-xl hover:bg-gray-50 transition" title="Notificações">
+                                        <i class="fas fa-bell text-lg"></i>
+                                        ${unreadCount > 0 ? `<span class="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full ring-2 ring-white"></span>` : ''}
+                                    </a>
+                                    <a href="#/cardapio/${tenant?.slug}" target="_blank" class="text-sm font-bold text-brand-600 bg-brand-50 px-4 py-1.5 rounded-full hover:bg-brand-100 transition flex items-center gap-1.5"><i class="fas fa-external-link-alt text-xs"></i> Ver Loja</a>
+                                </div>
+                            </header>
+                            <div class="flex-grow p-4 md:p-8 overflow-y-auto" id="admin-content">
+                                <div class="flex justify-center h-full items-center"><div class="loader w-8 h-8 border-4 border-gray-200 border-t-brand-500"></div></div>
+                            </div>
+                            
+                            <div class="md:hidden bg-gray-900 text-white flex justify-around p-3 pb-safe border-t border-gray-800 shrink-0">
+                                 <a href="#/admin/dashboard" class="flex flex-col items-center gap-1 ${subRoute === 'dashboard' ? 'text-brand-500' : 'text-gray-400'}"><i class="fas fa-chart-pie text-xl"></i><span class="text-[10px] font-bold">Início</span></a>
+                                 <a href="#/admin/pedidos" class="flex flex-col items-center gap-1 ${subRoute === 'pedidos' ? 'text-brand-500' : 'text-gray-400'}"><i class="fas fa-receipt text-xl"></i><span class="text-[10px] font-bold">Pedidos</span></a>
+                                 <a href="#/admin/cardapio" class="flex flex-col items-center gap-1 ${subRoute === 'cardapio' ? 'text-brand-500' : 'text-gray-400'}"><i class="fas fa-utensils text-xl"></i><span class="text-[10px] font-bold">Cardápio</span></a>
+                                 <a href="#/admin/configuracoes" class="flex flex-col items-center gap-1 ${subRoute === 'configuracoes' ? 'text-brand-500' : 'text-gray-400'}"><i class="fas fa-cog text-xl"></i><span class="text-[10px] font-bold">Ajustes</span></a>
+                            </div>
+                        </main>
+                    </div>
+                `;
+
+                if (subRoute === 'cardapio' && state.adminProducts.length > 0) {
+                    const contentDiv = document.getElementById('admin-content');
+                    if (contentDiv) {
+                        contentDiv.innerHTML = getAdminContent('cardapio');
+                        initAdminSortable();
+                    }
                 }
-            }
+            });
         }
 
         window.openRenewalModal = function() {
@@ -1623,31 +1874,6 @@
             `;
             openModal(html);
         };
-
-        function getAdminContent(route) {
-            if (route === 'notificacoes') return renderAdminNotifications();
-            if (route === 'cardapio') return renderAdminMenuBuilder();
-            if (route === 'pedidos') return renderAdminOrders();
-            if (route === 'configuracoes') return renderAdminSettings();
-            
-            const faturamento = state.adminOrders.reduce((sum, o) => sum + (o.status !== 'cancelado' ? o.total : 0), 0);
-            return `
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                    <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
-                        <p class="text-gray-500 font-bold mb-1 uppercase text-xs">Vendas Totais</p>
-                        <h3 class="text-3xl font-black text-gray-800">${faturamento.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</h3>
-                    </div>
-                    <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
-                        <p class="text-gray-500 font-bold mb-1 uppercase text-xs">Pedidos</p>
-                        <h3 class="text-3xl font-black text-gray-800">${state.adminOrders.length}</h3>
-                    </div>
-                    <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
-                        <p class="text-gray-500 font-bold mb-1 uppercase text-xs">Produtos Cadastrados</p>
-                        <h3 class="text-3xl font-black text-gray-800">${state.adminProducts.length}</h3>
-                    </div>
-                </div>
-            `;
-        }
 
         function renderAdminNotifications() {
             const unreadCount = state.adminNotifications.filter(n => !n.read).length;
@@ -1757,7 +1983,8 @@
             }
             loadAdminData();
         };
-                function renderAdminSettings() {
+
+        function renderAdminSettings() {
             const t = state.currentTenant || {};
             return `
                 <div class="max-w-2xl mx-auto space-y-6">
@@ -1895,9 +2122,26 @@
         };
 
         function renderAdminMenuBuilder() {
+            const isOpen = state.currentTenant?.settings?.open !== undefined ? state.currentTenant.settings.open : true;
+            const statusColor = isOpen ? 'green' : 'red';
+            const statusLabel = isOpen ? 'Aberto' : 'Fechado';
+            const statusIcon = isOpen ? 'fa-toggle-on' : 'fa-toggle-off';
+
             return `
                 <div class="mb-6">
-                    <h3 class="font-bold text-gray-800 text-lg mb-4">Configurações do Cardápio</h3>
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+                        <div>
+                            <h3 class="font-bold text-gray-800 text-lg">Configurações do Cardápio</h3>
+                            <p class="text-xs text-gray-500">Gerencie as informações e a visibilidade do seu cardápio público</p>
+                        </div>
+                        <button onclick="toggleRestaurantStatus('${state.currentTenant?.id}', '${isOpen ? 'open' : 'closed'}')" 
+                                class="flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-white shadow-lg transition transform hover:scale-105 ${isOpen ? 'bg-green-500 hover:bg-green-600 shadow-green-500/30' : 'bg-red-500 hover:bg-red-600 shadow-red-500/30'}">
+                            <i class="fas ${statusIcon}"></i>
+                            <span>${isOpen ? 'Fechar Cardápio' : 'Abrir Cardápio'}</span>
+                            <span class="ml-1 text-xs bg-white/20 px-2 py-0.5 rounded-full">${statusLabel}</span>
+                        </button>
+                    </div>
+                    
                     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                         <button onclick="openRestaurantNameEditor()" class="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition text-left group">
                             <div class="flex items-center gap-3">
@@ -2336,7 +2580,8 @@
                 btn.disabled = false; btn.innerHTML = 'Salvar Produto';
             }
         }
-                window.openProductEditor = function(productId) {
+
+        window.openProductEditor = function(productId) {
             const product = state.adminProducts.find(p => p.id === productId);
             if (!product) return;
             
@@ -2538,79 +2783,6 @@
                 showToast("Produto excluído.");
                 loadAdminData();
             }
-        }
-
-        function renderAdminOrders() {
-            const getStatusBadge = (status) => {
-                switch(status) {
-                    case 'novo': return `<span class="px-2.5 py-1 bg-blue-100 text-blue-700 rounded-lg text-xs font-bold border border-blue-200 uppercase">Novo</span>`;
-                    case 'preparando': return `<span class="px-2.5 py-1 bg-yellow-100 text-yellow-700 rounded-lg text-xs font-bold border border-yellow-200 uppercase">Preparando</span>`;
-                    case 'entrega': return `<span class="px-2.5 py-1 bg-purple-100 text-purple-700 rounded-lg text-xs font-bold border border-purple-200 uppercase">Em Entrega</span>`;
-                    case 'entregue': return `<span class="px-2.5 py-1 bg-green-100 text-green-700 rounded-lg text-xs font-bold border border-green-200 uppercase">Entregue</span>`;
-                    case 'cancelado': return `<span class="px-2.5 py-1 bg-red-100 text-red-700 rounded-lg text-xs font-bold border border-red-200 uppercase">Cancelado</span>`;
-                    default: return `<span class="px-2.5 py-1 bg-gray-100 text-gray-700 rounded-lg text-xs font-bold border border-gray-200 uppercase">${status || 'Novo'}</span>`;
-                }
-            };
-
-            return `
-                <div class="flex justify-between items-center mb-6">
-                    <div>
-                        <h3 class="font-bold text-gray-800 text-lg">Histórico e Gestão de Pedidos</h3>
-                        <p class="text-xs text-gray-500">Clique no nome do cliente ou no botão para abrir os detalhes e editar as informações do pedido.</p>
-                    </div>
-                </div>
-                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-left">
-                            <thead class="bg-gray-50 text-xs uppercase text-gray-500 font-bold border-b border-gray-100">
-                                <tr>
-                                    <th class="p-4">Cliente</th>
-                                    <th class="p-4">Endereço de Entrega</th>
-                                    <th class="p-4">Itens & Obs</th>
-                                    <th class="p-4">Total</th>
-                                    <th class="p-4">Status</th>
-                                    <th class="p-4 text-right">Ações</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-gray-100 text-sm">
-                                ${state.adminOrders.map(o => `
-                                    <tr class="hover:bg-gray-50/80 transition group">
-                                        <td class="p-4">
-                                            <div class="flex items-center gap-3 cursor-pointer" onclick="openOrderDetailsModal('${o.id}')">
-                                                <div class="w-10 h-10 rounded-xl bg-brand-50 text-brand-600 font-black flex items-center justify-center text-sm shadow-sm group-hover:bg-brand-500 group-hover:text-white transition shrink-0">
-                                                    ${(o.customer?.name || 'C').charAt(0).toUpperCase()}
-                                                </div>
-                                                <div>
-                                                    <div class="font-bold text-gray-900 group-hover:text-brand-600 transition flex items-center gap-1.5">
-                                                        <span>${o.customer?.name || 'Sem Nome'}</span>
-                                                        <i class="fas fa-edit text-[11px] text-gray-400 group-hover:text-brand-500"></i>
-                                                    </div>
-                                                    <span class="text-xs text-gray-400 font-mono">${o.customer?.phone || 'Sem telefone'}</span>
-                                                </div>
-                                            </div>
-                                        </td>
-                                        <td class="p-4 text-xs text-gray-600 max-w-[200px]">
-                                            <div class="truncate font-medium">${o.customer?.address || '<span class="text-gray-400 italic">Não informado</span>'}</div>
-                                        </td>
-                                        <td class="p-4">
-                                            <div class="text-xs font-semibold text-gray-800">${o.items.length} item(ns)</div>
-                                            ${o.observations ? `<div class="text-[11px] text-amber-600 italic truncate max-w-[180px]" title="${o.observations}"><i class="fas fa-comment-alt mr-1"></i>${o.observations}</div>` : ''}
-                                        </td>
-                                        <td class="p-4 font-black text-brand-600">${(o.total || 0).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</td>
-                                        <td class="p-4">${getStatusBadge(o.status)}</td>
-                                        <td class="p-4 text-right">
-                                            <button onclick="openOrderDetailsModal('${o.id}')" class="bg-gray-100 hover:bg-brand-500 hover:text-white text-gray-700 px-3.5 py-1.5 rounded-xl text-xs font-bold transition inline-flex items-center gap-1.5 shadow-sm">
-                                                <i class="fas fa-edit"></i> Ver / Editar
-                                            </button>
-                                        </td>
-                                    </tr>
-                                `).join('')}
-                                ${state.adminOrders.length === 0 ? `<tr><td colspan="6" class="p-12 text-center text-gray-400 font-medium">Nenhum pedido recebido ainda.</td></tr>` : ''}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            `;
         }
 
         window.openOrderDetailsModal = function(orderId) {
@@ -2880,6 +3052,25 @@
                             </div>
                             <h2 class="text-2xl font-black text-gray-800 mb-3">Sistema Congelado</h2>
                             <p class="text-gray-500 font-medium leading-relaxed mb-6">O cardápio de <strong>${state.publicTenant.name}</strong> encontra-se temporariamente indisponível.</p>
+                            <a href="#/" class="inline-block bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 px-6 rounded-xl transition">Voltar ao Início</a>
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+
+            const isOpen = state.publicTenant.settings?.open !== undefined ? state.publicTenant.settings.open : true;
+
+            if (!isOpen) {
+                container.innerHTML = `
+                    <div class="min-h-screen flex items-center justify-center bg-gray-50 p-4 fade-in">
+                        <div class="bg-white p-8 md:p-12 rounded-3xl shadow-2xl text-center max-w-md w-full border border-gray-100 relative overflow-hidden">
+                            <div class="absolute top-0 left-0 w-full h-2 bg-red-500"></div>
+                            <div class="w-24 h-24 bg-red-50 text-red-500 rounded-full flex items-center justify-center text-5xl mx-auto mb-6 shadow-inner">
+                                <i class="fas fa-store-slash"></i>
+                            </div>
+                            <h2 class="text-2xl font-black text-gray-800 mb-3">Cardápio Fechado</h2>
+                            <p class="text-gray-500 font-medium leading-relaxed mb-6">O estabelecimento <strong>${state.publicTenant.name}</strong> está com o cardápio fechado no momento. Volte mais tarde!</p>
                             <a href="#/" class="inline-block bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 px-6 rounded-xl transition">Voltar ao Início</a>
                         </div>
                     </div>
