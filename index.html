@@ -1985,31 +1985,8 @@
         };
 
         function renderAdminSettings() {
-            const t = state.currentTenant || {};
             return `
                 <div class="max-w-2xl mx-auto space-y-6">
-                    <div class="bg-white p-6 md:p-8 rounded-3xl border border-gray-100 shadow-sm">
-                        <h3 class="font-black text-gray-800 text-xl mb-1 flex items-center gap-2">
-                            <i class="fas fa-address-card text-brand-500"></i> Informações de Contato
-                        </h3>
-                        <p class="text-xs text-gray-500 mb-6">Atualize o número de telefone/WhatsApp que seus clientes verão.</p>
-                        
-                        <form onsubmit="saveTenantSettings(event)" class="space-y-4">
-                            <div>
-                                <label class="block text-sm font-bold text-gray-700 mb-1">WhatsApp de Contato</label>
-                                <div class="relative">
-                                    <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-green-500">
-                                        <i class="fab fa-whatsapp text-lg"></i>
-                                    </div>
-                                    <input type="text" id="cfg-phone" value="${t.phone || ''}" required placeholder="(11) 99999-9999" class="w-full pl-11 pr-4 py-3 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:bg-white focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 transition font-medium">
-                                </div>
-                            </div>
-                            <button type="submit" id="btn-save-cfg" class="bg-gray-900 text-white font-bold py-3 px-6 rounded-xl hover:bg-black transition shadow-md w-full sm:w-auto">
-                                Salvar Contato
-                            </button>
-                        </form>
-                    </div>
-
                     <div class="bg-white p-6 md:p-8 rounded-3xl border border-gray-100 shadow-sm">
                         <h3 class="font-black text-gray-800 text-xl mb-1 flex items-center gap-2">
                             <i class="fas fa-shield-alt text-brand-500"></i> Trocar Senha
@@ -2050,40 +2027,6 @@
                 </div>
             `;
         }
-
-        window.saveTenantSettings = async function(e) {
-            e.preventDefault();
-            const btn = document.getElementById('btn-save-cfg');
-            btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...';
-            
-            const newPhone = document.getElementById('cfg-phone').value.trim();
-            const oldPhone = state.currentTenant.phone;
-
-            try {
-                await updateDoc(doc(db, collections.tenants, state.currentTenant.id), { phone: newPhone });
-                state.currentTenant.phone = newPhone;
-                
-                if (oldPhone !== newPhone) {
-                    try {
-                        await createAdminNotification({
-                            type: 'admin_master',
-                            title: 'Contato Atualizado',
-                            message: `@${state.currentTenant.name} atualizou contato`,
-                            customerName: state.currentTenant.name,
-                            action: 'contato_alterado'
-                        });
-                    } catch (notifErr) {
-                        console.warn("Aviso: Não foi possível criar notificação:", notifErr);
-                    }
-                }
-                
-                showToast("Contato atualizado com sucesso!");
-                btn.disabled = false; btn.innerHTML = 'Salvar Contato';
-            } catch(err) {
-                showToast("Erro ao atualizar: " + err.message, "error");
-                btn.disabled = false; btn.innerHTML = 'Salvar Contato';
-            }
-        };
 
         window.saveTenantPassword = async function(e) {
             e.preventDefault();
@@ -2204,6 +2147,28 @@
                                 </div>
                             </div>
                         </button>
+                        <button onclick="openRestaurantProfileEditor()" class="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition text-left group">
+                            <div class="flex items-center gap-3">
+                                <div class="w-12 h-12 bg-green-50 group-hover:bg-green-100 rounded-xl flex items-center justify-center text-green-600 transition shrink-0">
+                                    <i class="fab fa-whatsapp text-xl"></i>
+                                </div>
+                                <div class="min-w-0">
+                                    <p class="font-bold text-gray-800 truncate">Número do Cardápio</p>
+                                    <p class="text-xs text-gray-500 truncate">Contato, endereço e horário</p>
+                                </div>
+                            </div>
+                        </button>
+                        <button onclick="openInstagramEditor()" class="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition text-left group">
+                            <div class="flex items-center gap-3">
+                                <div class="w-12 h-12 bg-pink-50 group-hover:bg-pink-100 rounded-xl flex items-center justify-center text-pink-600 transition shrink-0">
+                                    <i class="fab fa-instagram text-xl"></i>
+                                </div>
+                                <div class="min-w-0">
+                                    <p class="font-bold text-gray-800 truncate">Editar Instagram</p>
+                                    <p class="text-xs text-gray-500 truncate">Perfil do cardápio</p>
+                                </div>
+                            </div>
+                        </button>
                         <button onclick="openImageEditor('profile')" class="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition text-left group">
                             <div class="flex items-center gap-3">
                                 <div class="w-12 h-12 bg-brand-50 group-hover:bg-brand-100 rounded-xl flex items-center justify-center text-brand-500 transition shrink-0">
@@ -2265,6 +2230,78 @@
                 </div>
             `;
         }
+        window.openRestaurantProfileEditor = function() {
+            const tenant = state.currentTenant || {};
+            const html = `
+                <div class="fixed inset-0 z-50 flex items-center justify-center p-4 overlay fade-in">
+                    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden">
+                        <div class="p-6 border-b flex justify-between items-center bg-gray-50"><h3 class="font-bold text-gray-800 text-lg"><i class="fas fa-store text-brand-500 mr-2"></i>Perfil do Restaurante</h3><button onclick="closeModal()" class="text-gray-400 hover:text-gray-800 text-xl leading-none">&times;</button></div>
+                        <form onsubmit="saveRestaurantProfile(event)" class="p-6 space-y-4">
+                            <div><label class="block text-xs font-bold text-gray-700 mb-1">WhatsApp de Contato</label><input id="profile-phone" required value="${tenant.phone || ''}" placeholder="(11) 99999-9999" class="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:border-brand-500 text-sm font-medium"></div>
+                            <div><label class="block text-xs font-bold text-gray-700 mb-1">Endereço</label><input id="profile-address" value="${tenant.address || ''}" placeholder="Rua, número, bairro e cidade" class="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:border-brand-500 text-sm font-medium"></div>
+                            <div><label class="block text-xs font-bold text-gray-700 mb-1">Horário de Funcionamento</label><input id="profile-hours" value="${tenant.hours || ''}" placeholder="Ex: Seg a Dom, 18h às 23h" class="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:border-brand-500 text-sm font-medium"></div>
+                            <div class="flex gap-3 pt-2"><button type="button" onclick="closeModal()" class="flex-1 py-3 rounded-xl bg-gray-100 text-gray-600 font-bold text-sm">Cancelar</button><button type="submit" id="btn-save-profile" class="flex-1 py-3 rounded-xl bg-brand-500 text-white font-bold text-sm shadow-lg shadow-brand-500/30">Salvar</button></div>
+                        </form>
+                    </div>
+                </div>
+            `;
+            openModal(html);
+        };
+
+        window.saveRestaurantProfile = async function(e) {
+            e.preventDefault();
+            const btn = document.getElementById('btn-save-profile');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+            const updates = {
+                phone: document.getElementById('profile-phone').value.trim(),
+                address: document.getElementById('profile-address').value.trim(),
+                hours: document.getElementById('profile-hours').value.trim()
+            };
+            try {
+                await updateDoc(doc(db, collections.tenants, state.currentTenant.id), updates);
+                Object.assign(state.currentTenant, updates);
+                closeModal();
+                showToast('Perfil do restaurante atualizado!');
+                loadAdminData();
+            } catch (err) {
+                showToast('Erro ao atualizar perfil: ' + err.message, 'error');
+                btn.disabled = false;
+                btn.innerHTML = 'Salvar';
+            }
+        };
+
+        window.openInstagramEditor = function() {
+            const html = `
+                <div class="fixed inset-0 z-50 flex items-center justify-center p-4 overlay fade-in">
+                    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden">
+                        <div class="p-6 border-b flex justify-between items-center bg-gray-50"><h3 class="font-bold text-gray-800 text-lg"><i class="fab fa-instagram text-pink-600 mr-2"></i>Editar Instagram</h3><button onclick="closeModal()" class="text-gray-400 hover:text-gray-800 text-xl leading-none">&times;</button></div>
+                        <form onsubmit="saveRestaurantInstagram(event)" class="p-6 space-y-4"><div><label class="block text-xs font-bold text-gray-700 mb-1">Usuário ou link do Instagram</label><input id="profile-instagram" value="${state.currentTenant?.instagram || ''}" placeholder="@seurestaurante ou https://instagram.com/seurestaurante" class="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:border-pink-500 text-sm font-medium"><p class="text-[11px] text-gray-400 mt-1.5">Este link aparecerá no perfil público do restaurante.</p></div><div class="flex gap-3 pt-2"><button type="button" onclick="closeModal()" class="flex-1 py-3 rounded-xl bg-gray-100 text-gray-600 font-bold text-sm">Cancelar</button><button type="submit" id="btn-save-instagram" class="flex-1 py-3 rounded-xl bg-pink-600 text-white font-bold text-sm">Salvar Instagram</button></div></form>
+                    </div>
+                </div>
+            `;
+            openModal(html);
+        };
+
+        window.saveRestaurantInstagram = async function(e) {
+            e.preventDefault();
+            const btn = document.getElementById('btn-save-instagram');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+            const instagram = document.getElementById('profile-instagram').value.trim();
+            try {
+                await updateDoc(doc(db, collections.tenants, state.currentTenant.id), { instagram });
+                state.currentTenant.instagram = instagram;
+                closeModal();
+                showToast('Instagram atualizado!');
+                loadAdminData();
+            } catch (err) {
+                showToast('Erro ao atualizar Instagram: ' + err.message, 'error');
+                btn.disabled = false;
+                btn.innerHTML = 'Salvar Instagram';
+            }
+        };
+
                 window.openRestaurantNameEditor = function() {
             const currentName = state.currentTenant?.name || '';
             const html = `
@@ -2748,63 +2785,27 @@
                 }
             };
 
+            const columns = [
+                { title: 'Em Aberto', description: 'Pedido enviado ao restaurante', statuses: ['enviado', 'analisando'], icon: 'fa-inbox', color: 'blue' },
+                { title: 'Pedido Preparando', description: 'Pedidos já aceitos', statuses: ['aceito', 'preparando'], icon: 'fa-fire', color: 'amber' },
+                { title: 'Em Entrega', description: 'A caminho do cliente', statuses: ['entrega'], icon: 'fa-motorcycle', color: 'purple' }
+            ];
+            const colorClasses = {
+                blue: 'bg-blue-50 border-blue-100 text-blue-600',
+                amber: 'bg-amber-50 border-amber-100 text-amber-600',
+                purple: 'bg-purple-50 border-purple-100 text-purple-600'
+            };
+            const renderOrderCard = (order) => `
+                <button onclick="openOrderDetailsModal('${order.id}')" class="w-full text-left bg-white hover:border-brand-300 hover:shadow-sm border border-gray-200 rounded-2xl p-4 transition group">
+                    <div class="flex items-start gap-3"><div class="w-10 h-10 rounded-xl bg-brand-50 text-brand-600 font-black flex items-center justify-center shrink-0 group-hover:bg-brand-500 group-hover:text-white transition">${(order.customer?.name || 'C').charAt(0).toUpperCase()}</div><div class="min-w-0 flex-grow"><div class="flex items-center justify-between gap-2"><p class="font-bold text-gray-900 truncate">${order.customer?.name || 'Sem nome'}</p><i class="fas fa-pen text-[10px] text-gray-400 group-hover:text-brand-500"></i></div><p class="text-xs text-gray-400 mt-0.5 truncate">${order.customer?.phone || 'Sem telefone'}</p><p class="text-xs text-gray-500 mt-2 truncate">${(order.items || []).map(item => `${item.quantity || 1}x ${item.name}`).join(', ')}</p><p class="font-black text-brand-600 text-sm mt-2">${(Number(order.total) || 0).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</p></div></div>
+                </button>`;
             return `
-                <div class="flex justify-between items-center mb-6">
-                    <div>
-                        <h3 class="font-bold text-gray-800 text-lg">Histórico e Gestão de Pedidos</h3>
-                        <p class="text-xs text-gray-500">Clique no nome do cliente ou no botão para abrir os detalhes e editar as informações do pedido.</p>
-                    </div>
-                </div>
-                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-left">
-                            <thead class="bg-gray-50 text-xs uppercase text-gray-500 font-bold border-b border-gray-100">
-                                <tr>
-                                    <th class="p-4">Cliente</th>
-                                    <th class="p-4">Endereço de Entrega</th>
-                                    <th class="p-4">Itens & Obs</th>
-                                    <th class="p-4">Total</th>
-                                    <th class="p-4">Status</th>
-                                    <th class="p-4 text-right">Ações</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-gray-100 text-sm">
-                                ${state.adminOrders.map(o => `
-                                    <tr class="hover:bg-gray-50/80 transition group">
-                                        <td class="p-4">
-                                            <div class="flex items-center gap-3 cursor-pointer" onclick="openOrderDetailsModal('${o.id}')">
-                                                <div class="w-10 h-10 rounded-xl bg-brand-50 text-brand-600 font-black flex items-center justify-center text-sm shadow-sm group-hover:bg-brand-500 group-hover:text-white transition shrink-0">
-                                                    ${(o.customer?.name || 'C').charAt(0).toUpperCase()}
-                                                </div>
-                                                <div>
-                                                    <div class="font-bold text-gray-900 group-hover:text-brand-600 transition flex items-center gap-1.5">
-                                                        <span>${o.customer?.name || 'Sem Nome'}</span>
-                                                        <i class="fas fa-edit text-[11px] text-gray-400 group-hover:text-brand-500"></i>
-                                                    </div>
-                                                    <span class="text-xs text-gray-400 font-mono">${o.customer?.phone || 'Sem telefone'}</span>
-                                                </div>
-                                            </div>
-                                        </td>
-                                        <td class="p-4 text-xs text-gray-600 max-w-[200px]">
-                                            <div class="truncate font-medium">${o.customer?.address || '<span class="text-gray-400 italic">Não informado</span>'}</div>
-                                        </td>
-                                        <td class="p-4">
-                                            <div class="text-xs font-semibold text-gray-800">${o.items.length} item(ns)</div>
-                                            ${o.observations ? `<div class="text-[11px] text-amber-600 italic truncate max-w-[180px]" title="${o.observations}"><i class="fas fa-comment-alt mr-1"></i>${o.observations}</div>` : ''}
-                                        </td>
-                                        <td class="p-4 font-black text-brand-600">${(o.total || 0).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</td>
-                                        <td class="p-4">${getStatusBadge(o.status)}</td>
-                                        <td class="p-4 text-right">
-                                            <button onclick="openOrderDetailsModal('${o.id}')" class="bg-gray-100 hover:bg-brand-500 hover:text-white text-gray-700 px-3.5 py-1.5 rounded-xl text-xs font-bold transition inline-flex items-center gap-1.5 shadow-sm">
-                                                <i class="fas fa-edit"></i> Ver / Editar
-                                            </button>
-                                        </td>
-                                    </tr>
-                                `).join('')}
-                                ${state.adminOrders.length === 0 ? `<tr><td colspan="6" class="p-12 text-center text-gray-400 font-medium">Nenhum pedido recebido ainda.</td></tr>` : ''}
-                            </tbody>
-                        </table>
-                    </div>
+                <div class="flex justify-between items-center mb-6"><div><h3 class="font-bold text-gray-800 text-lg">Gestão de Pedidos</h3><p class="text-xs text-gray-500">Organize os pedidos por etapa. Clique em um cliente para ver e editar o pedido.</p></div></div>
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+                    ${columns.map(column => {
+                        const orders = state.adminOrders.filter(order => column.statuses.includes(order.status));
+                        return `<section class="rounded-2xl border ${colorClasses[column.color]} p-4"><div class="flex items-start justify-between gap-3 mb-4"><div><h4 class="font-black text-gray-800"><i class="fas ${column.icon} ${colorClasses[column.color].split(' ').pop()} mr-2"></i>${column.title}</h4><p class="text-xs text-gray-500 mt-1">${column.description}</p></div><span class="w-7 h-7 rounded-full bg-white/80 flex items-center justify-center text-xs font-black text-gray-700">${orders.length}</span></div><div class="space-y-3">${orders.map(renderOrderCard).join('') || '<div class="bg-white/60 border border-white rounded-xl p-6 text-center text-xs text-gray-400 font-medium">Nenhum pedido nesta etapa.</div>'}</div></section>`;
+                    }).join('')}
                 </div>
             `;
         }
@@ -3272,9 +3273,9 @@
                     <div class="h-48 bg-gradient-to-r from-gray-800 to-gray-900 relative" style="${coverImage ? `background-image: url('${coverImage}'); background-size: cover; background-position: center;` : ''}">
                         <div class="absolute inset-0 bg-black/20"></div>
                         <div class="absolute -bottom-10 left-4 md:left-12 flex items-end gap-4">
-                            <div class="w-24 h-24 bg-white rounded-2xl shadow-lg border-4 border-white flex items-center justify-center text-3xl font-black text-brand-500 uppercase overflow-hidden" style="${profileImage ? `background-image: url('${profileImage}'); background-size: cover; background-position: center;` : ''}">
+                            <button type="button" onclick="openPublicRestaurantProfileModal()" aria-label="Abrir perfil do restaurante" class="w-24 h-24 bg-white rounded-2xl shadow-lg border-4 border-white flex items-center justify-center text-3xl font-black text-brand-500 uppercase overflow-hidden cursor-pointer hover:scale-105 transition" style="${profileImage ? `background-image: url('${profileImage}'); background-size: cover; background-position: center;` : ''}">
                                 ${profileImage ? '' : t.name.charAt(0)}
-                            </div>
+                            </button>
                             <div class="mb-4">
                                 <h1 class="text-2xl font-black text-white drop-shadow-md leading-tight mb-1">${t.name}</h1>
                                 <span class="px-2.5 py-0.5 ${isOpen ? 'bg-green-500' : 'bg-red-500'} text-white rounded text-xs font-bold shadow uppercase tracking-wider inline-block">
@@ -3331,6 +3332,28 @@
             `;
             updateCartTotal();
         }
+
+        window.openPublicRestaurantProfileModal = function() {
+            const tenant = state.publicTenant;
+            if (!tenant) return;
+            const phone = (tenant.phone || '').replace(/\D/g, '');
+            const rawInstagram = (tenant.instagram || '').trim();
+            const instagram = rawInstagram
+                ? (rawInstagram.startsWith('http') ? rawInstagram : `https://instagram.com/${rawInstagram.replace(/^@/, '')}`)
+                : '';
+            const html = `
+                <div class="fixed inset-0 z-50 flex items-center justify-center p-4 overlay fade-in">
+                    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden">
+                        <div class="p-6 border-b flex justify-between items-center bg-gray-50"><div><h3 class="font-black text-gray-800 text-lg">Perfil do Restaurante</h3><p class="text-xs text-gray-400 mt-0.5">${tenant.name}</p></div><button onclick="closeModal()" class="text-gray-400 hover:text-gray-800 text-2xl leading-none">&times;</button></div>
+                        <div class="p-6 space-y-4">
+                            <div class="bg-gray-50 border border-gray-200 rounded-2xl p-4 space-y-3 text-sm"><p class="text-gray-700"><i class="fas fa-phone text-brand-500 w-6"></i><span class="font-bold">Contato:</span> ${tenant.phone || 'Não informado'}</p><p class="text-gray-700"><i class="fas fa-map-marker-alt text-brand-500 w-6"></i><span class="font-bold">Endereço:</span> ${tenant.address || 'Não informado'}</p><p class="text-gray-700"><i class="fas fa-clock text-brand-500 w-6"></i><span class="font-bold">Funcionamento:</span> ${tenant.hours || 'Não informado'}</p></div>
+                            ${(phone || instagram) ? `<div class="flex gap-3">${phone ? `<a href="https://wa.me/55${phone}" target="_blank" class="flex-1 bg-green-500 hover:bg-green-600 text-white font-bold py-3 rounded-xl transition text-center"><i class="fab fa-whatsapp text-lg"></i> WhatsApp</a>` : ''}${instagram ? `<a href="${instagram}" target="_blank" rel="noopener" class="flex-1 bg-gradient-to-r from-purple-600 via-pink-500 to-orange-400 hover:opacity-90 text-white font-bold py-3 rounded-xl transition text-center"><i class="fab fa-instagram text-lg"></i> Instagram</a>` : ''}</div>` : ''}
+                        </div>
+                    </div>
+                </div>
+            `;
+            openModal(html);
+        };
 
         window.renderOrderStatus = function(container, orderId) {
             container.innerHTML = `
