@@ -217,7 +217,13 @@
                             console.error("Erro ao carregar perfil da loja:", e);
                         }
                     } else {
-                        await loadSuperAdminNotifications();
+                        // CORREÇÃO: Só carrega notificações se for admin master
+                        try {
+                            await loadSuperAdminNotifications();
+                        } catch (err) {
+                            console.warn("Aviso: Não foi possível carregar notificações do admin:", err);
+                            state.superAdminNotifications = [];
+                        }
                     }
                 } else {
                     state.currentTenant = null;
@@ -252,7 +258,15 @@
             }
         }
 
+        // CORREÇÃO: Função com tratamento de erros melhorado
         async function loadSuperAdminNotifications() {
+            // Verifica se o usuário é admin master
+            if (!state.isSuperAdmin || !state.currentUser) {
+                console.log("Usuário não é admin master, pulando notificações");
+                state.superAdminNotifications = [];
+                return;
+            }
+
             return new Promise((resolve) => {
                 if (window.unsubSuperAdminNotifs) {
                     resolve();
@@ -274,15 +288,20 @@
                         }
                         resolve();
                     }, (err) => {
-                        console.error("Erro ao carregar notificações do admin:", err);
+                        console.warn("Erro ao carregar notificações do admin:", err);
+                        console.log("Isso geralmente indica que as regras do Firestore precisam ser ajustadas.");
+                        console.log("Acesse: Console Firebase > Firestore Database > Rules");
+                        console.log("Adicione: allow read, write: if request.auth != null;");
+                        
                         // Limpa a referência para permitir retry na próxima chamada
                         window.unsubSuperAdminNotifs = null;
                         state.superAdminNotifications = [];
                         resolve();
                     });
                 } catch (err) {
-                    console.error("Erro crítico no listener de notificações:", err);
+                    console.warn("Erro crítico no listener de notificações:", err);
                     window.unsubSuperAdminNotifs = null;
+                    state.superAdminNotifications = [];
                     resolve();
                 }
             });
@@ -481,14 +500,19 @@
 
                     await setDoc(doc(db, collections.tenants, userCreds.user.uid), tenantData);
 
-                    await createAdminNotification({
-                        type: 'admin_master',
-                        title: `Novo Cadastro @${name}`,
-                        message: `${name} cadastrou-se na plataforma`,
-                        customerName: name,
-                        customerEmail: email,
-                        action: 'novo_cliente'
-                    });
+                    // CORREÇÃO: Tenta criar notificação mas não falha se não conseguir
+                    try {
+                        await createAdminNotification({
+                            type: 'admin_master',
+                            title: `Novo Cadastro @${name}`,
+                            message: `${name} cadastrou-se na plataforma`,
+                            customerName: name,
+                            customerEmail: email,
+                            action: 'novo_cliente'
+                        });
+                    } catch (notifErr) {
+                        console.warn("Aviso: Não foi possível criar notificação para admin:", notifErr);
+                    }
 
                     // Otimização: Popula os dados imediatamente no state local para evitar atraso/travamento.
                     state.currentUser = userCreds.user;
@@ -517,7 +541,12 @@
                             state.currentTenant = null;
                         }
                     } else {
-                        await loadSuperAdminNotifications();
+                        // CORREÇÃO: Carrega notificações com tratamento de erro
+                        try {
+                            await loadSuperAdminNotifications();
+                        } catch (err) {
+                            console.warn("Aviso: Notificações do admin não carregadas:", err);
+                        }
                     }
 
                     showToast('Acesso liberado.');
@@ -560,7 +589,8 @@
                 // Atualiza o ID local com o ID real do Firestore
                 notifObj.id = notifRef.id;
             } catch (err) {
-                console.error("Erro ao salvar notificação no Firestore:", err);
+                console.warn("Erro ao salvar notificação no Firestore:", err);
+                console.log("Verifique as regras do Firestore para permitir escrita na coleção saas_admin_notifications");
             }
         }
 
@@ -609,7 +639,14 @@
             });
 
             await tenantsPromise;
-            await loadSuperAdminNotifications();
+            
+            // CORREÇÃO: Carrega notificações com tratamento de erro
+            try {
+                await loadSuperAdminNotifications();
+            } catch (err) {
+                console.warn("Aviso: Notificações não carregadas:", err);
+            }
+            
             await checkPlanExpirations(); 
             
             const contentDiv = document.getElementById('superadmin-content');
@@ -662,13 +699,18 @@
                     t.status = updateFields.status || t.status;
                     t.lastNotif = notifType;
 
-                    await createAdminNotification({
-                        type: 'admin_master',
-                        title: 'Aviso de Vencimento',
-                        message: msg,
-                        customerName: t.name,
-                        action: 'vencimento'
-                    });
+                    // CORREÇÃO: Tenta criar notificação mas não falha se não conseguir
+                    try {
+                        await createAdminNotification({
+                            type: 'admin_master',
+                            title: 'Aviso de Vencimento',
+                            message: msg,
+                            customerName: t.name,
+                            action: 'vencimento'
+                        });
+                    } catch (notifErr) {
+                        console.warn("Aviso: Não foi possível criar notificação de vencimento:", notifErr);
+                    }
                 }
             }
 
@@ -932,8 +974,7 @@
                 </div>
             `;
         }
-
-        window.openTenantDetailsModal = function(tenantId) {
+                window.openTenantDetailsModal = function(tenantId) {
             const tenant = state.superAdminTenants.find(t => t.id === tenantId);
             if (!tenant) return;
 
@@ -1121,14 +1162,19 @@
                             ? `@${name} atualizou a senha no sistema`
                             : `@${name} atualizou o email de acesso`;
                         
-                        await createAdminNotification({
-                            type: 'admin_master',
-                            title: changes.includes('senha') ? 'Senha Atualizada' : 'Email Atualizado',
-                            message: message,
-                            customerName: name,
-                            customerEmail: email,
-                            action: changes.includes('senha') ? 'senha_alterada' : 'email_alterado'
-                        });
+                        // CORREÇÃO: Tenta criar notificação mas não falha se não conseguir
+                        try {
+                            await createAdminNotification({
+                                type: 'admin_master',
+                                title: changes.includes('senha') ? 'Senha Atualizada' : 'Email Atualizado',
+                                message: message,
+                                customerName: name,
+                                customerEmail: email,
+                                action: changes.includes('senha') ? 'senha_alterada' : 'email_alterado'
+                            });
+                        } catch (notifErr) {
+                            console.warn("Aviso: Não foi possível criar notificação:", notifErr);
+                        }
                     }
 
                     if (oldTenant.status !== status) {
@@ -1138,13 +1184,17 @@
                         else if (status === 'canceled') statusMsg = `@${name} cancelou a assinatura`;
 
                         if (statusMsg) {
-                            await createAdminNotification({
-                                type: 'admin_master',
-                                title: 'Status Alterado',
-                                message: statusMsg,
-                                customerName: name,
-                                action: 'status_alterado'
-                            });
+                            try {
+                                await createAdminNotification({
+                                    type: 'admin_master',
+                                    title: 'Status Alterado',
+                                    message: statusMsg,
+                                    customerName: name,
+                                    action: 'status_alterado'
+                                });
+                            } catch (notifErr) {
+                                console.warn("Aviso: Não foi possível criar notificação:", notifErr);
+                            }
                         }
                     }
                 }
@@ -1264,14 +1314,19 @@
 
                 await signOutSecondary(secondaryAuth);
 
-                await createAdminNotification({
-                    type: 'admin_master',
-                    title: `Novo Cadastro @${name}`,
-                    message: `${name} foi cadastrado na plataforma pelo administrador`,
-                    customerName: name,
-                    customerEmail: email,
-                    action: 'novo_cliente'
-                });
+                // CORREÇÃO: Tenta criar notificação mas não falha se não conseguir
+                try {
+                    await createAdminNotification({
+                        type: 'admin_master',
+                        title: `Novo Cadastro @${name}`,
+                        message: `${name} foi cadastrado na plataforma pelo administrador`,
+                        customerName: name,
+                        customerEmail: email,
+                        action: 'novo_cliente'
+                    });
+                } catch (notifErr) {
+                    console.warn("Aviso: Não foi possível criar notificação:", notifErr);
+                }
 
                 showToast('Lojista criado com sucesso!');
                 closeModal();
@@ -1497,7 +1552,6 @@
         window.openRenewalModal = function() {
             const phoneNumber = "5511999999999"; // Número do admin master (substitua pelo real)
             const wppMessage = encodeURIComponent(`Olá, sou o restaurante ${state.currentTenant?.name} e gostaria de enviar o comprovante de pagamento para liberação do meu sistema.`);
-            
             const html = `
                 <div class="fixed inset-0 z-50 flex items-center justify-center p-4 overlay fade-in">
                     <div class="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
@@ -1729,13 +1783,18 @@
                 state.currentTenant.phone = newPhone;
                 
                 if (oldPhone !== newPhone) {
-                    await createAdminNotification({
-                        type: 'admin_master',
-                        title: 'Contato Atualizado',
-                        message: `@${state.currentTenant.name} atualizou contato`,
-                        customerName: state.currentTenant.name,
-                        action: 'contato_alterado'
-                    });
+                    // CORREÇÃO: Tenta criar notificação mas não falha se não conseguir
+                    try {
+                        await createAdminNotification({
+                            type: 'admin_master',
+                            title: 'Contato Atualizado',
+                            message: `@${state.currentTenant.name} atualizou contato`,
+                            customerName: state.currentTenant.name,
+                            action: 'contato_alterado'
+                        });
+                    } catch (notifErr) {
+                        console.warn("Aviso: Não foi possível criar notificação:", notifErr);
+                    }
                 }
                 
                 showToast("Contato atualizado com sucesso!");
@@ -1760,13 +1819,18 @@
                 
                 await updateDoc(doc(db, collections.tenants, state.currentTenant.id), { password: newPass });
                 
-                await createAdminNotification({
-                    type: 'admin_master',
-                    title: 'Senha Atualizada',
-                    message: `@${state.currentTenant.name} atualizou a senha`,
-                    customerName: state.currentTenant.name,
-                    action: 'senha_alterada'
-                });
+                // CORREÇÃO: Tenta criar notificação mas não falha se não conseguir
+                try {
+                    await createAdminNotification({
+                        type: 'admin_master',
+                        title: 'Senha Atualizada',
+                        message: `@${state.currentTenant.name} atualizou a senha`,
+                        customerName: state.currentTenant.name,
+                        action: 'senha_alterada'
+                    });
+                } catch (notifErr) {
+                    console.warn("Aviso: Não foi possível criar notificação:", notifErr);
+                }
                 
                 showToast("Senha alterada com sucesso!");
                 document.getElementById('cfg-password').value = '';
@@ -1883,8 +1947,7 @@
                 </div>
             `;
         }
-
-        window.openRestaurantNameEditor = function() {
+                window.openRestaurantNameEditor = function() {
             const currentName = state.currentTenant?.name || '';
             const html = `
                 <div class="fixed inset-0 z-50 flex items-center justify-center p-4 overlay fade-in">
