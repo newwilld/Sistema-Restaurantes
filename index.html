@@ -205,16 +205,24 @@
                     state.isSuperAdmin = (user.email === 'willdalves1@gmail.com');
 
                     if (!state.isSuperAdmin) {
-                        try {
-                            const docRef = doc(db, collections.tenants, user.uid);
-                            const docSnap = await getDoc(docRef);
-                            if (docSnap.exists()) {
-                                state.currentTenant = { id: docSnap.id, ...docSnap.data() };
-                            } else {
-                                state.currentTenant = null;
+                        // Check if currentTenant is already set for this user (preserves instant register state)
+                        if (!state.currentTenant || state.currentTenant.id !== user.uid) {
+                            try {
+                                const docRef = doc(db, collections.tenants, user.uid);
+                                let docSnap = await getDoc(docRef);
+                                // Retry mechanism if new account creation doc is propagating
+                                if (!docSnap.exists()) {
+                                    await new Promise(r => setTimeout(r, 400));
+                                    docSnap = await getDoc(docRef);
+                                }
+                                if (docSnap.exists()) {
+                                    state.currentTenant = { id: docSnap.id, ...docSnap.data() };
+                                } else {
+                                    state.currentTenant = null;
+                                }
+                            } catch (e) {
+                                console.error("Erro ao carregar perfil da loja:", e);
                             }
-                        } catch (e) {
-                            console.error("Erro ao carregar perfil da loja:", e);
                         }
                     } else {
                         try {
@@ -231,10 +239,8 @@
                 
                 if (!state.isAppLoaded) {
                     state.isAppLoaded = true;
-                    handleRoute();
-                } else {
-                    handleRoute();
                 }
+                handleRoute();
             });
         }
 
@@ -260,7 +266,6 @@
 
         async function loadSuperAdminNotifications() {
             if (!state.isSuperAdmin || !state.currentUser) {
-                console.log("Usuário não é admin master, pulando notificações");
                 state.superAdminNotifications = [];
                 return;
             }
@@ -437,7 +442,7 @@
 
                         ${!isAdmin ? `
                         <div class="mt-6 text-center text-sm text-gray-600 font-medium">
-                            ${isRegister ?  
+                            ${isRegister ? 
                                 `Já tem sua loja? <a href="javascript:void(0)" onclick="renderAuthUI(document.getElementById('app'), false)" class="text-brand-600 hover:underline">Fazer Login</a>` : 
                                 `Ainda não é parceiro? <a href="javascript:void(0)" onclick="renderAuthUI(document.getElementById('app'), true)" class="text-brand-600 hover:underline">Cadastre-se</a>`
                             }
@@ -459,16 +464,23 @@
             btn.innerHTML = '<div class="loader w-5 h-5 border-2 border-white border-t-transparent mx-auto"></div>';
             btn.disabled = true;
 
-            const email = document.getElementById('email').value;
+            const email = document.getElementById('email').value.trim();
             const password = document.getElementById('password').value;
 
             try {
                 if (isRegister && !isAdmin) {
-                    const name = document.getElementById('restaurant-name').value;
-                    const slug = document.getElementById('restaurant-slug').value;
+                    const name = document.getElementById('restaurant-name').value.trim();
+                    const slug = document.getElementById('restaurant-slug').value.trim();
                     const phone = document.getElementById('restaurant-phone').value.trim();
                     
                     if(slug.length < 3) throw new Error("Link deve ter pelo menos 3 caracteres.");
+
+                    // Check if slug is already taken
+                    const q = query(collection(db, collections.tenants), where("slug", "==", slug));
+                    const snap = await getDocs(q);
+                    if (!snap.empty) {
+                        throw new Error("Este link já está em uso por outra loja. Escolha outro link.");
+                    }
 
                     const userCreds = await createUserWithEmailAndPassword(auth, email, password);
                     await updateProfile(userCreds.user, { displayName: name });
@@ -481,7 +493,7 @@
                         password: password,
                         status: 'active',
                         plan: 'trial',
-                        createdAt: serverTimestamp(),
+                        createdAt: Date.now(),
                         settings: {
                             open: true,
                             minOrder: 0,
@@ -491,27 +503,27 @@
                         }
                     };
 
+                    // Set tenant document in Firestore BEFORE changing route state
                     await setDoc(doc(db, collections.tenants, userCreds.user.uid), tenantData);
 
-                    try {
-                        await createAdminNotification({
-                            type: 'admin_master',
-                            title: `Novo Cadastro @${name}`,
-                            message: `${name} cadastrou-se na plataforma`,
-                            customerName: name,
-                            customerEmail: email,
-                            action: 'novo_cliente'
-                        });
-                    } catch (notifErr) {
-                        console.warn("Aviso: Não foi possível criar notificação para admin:", notifErr);
-                    }
-
+                    // Pre-populate application state so navigation happens INSTANTLY without F5
                     state.currentUser = userCreds.user;
                     state.currentTenant = { id: userCreds.user.uid, ...tenantData };
                     state.isSuperAdmin = false;
 
+                    // Send admin notification asynchronously without awaiting
+                    createAdminNotification({
+                        type: 'admin_master',
+                        title: `Novo Cadastro @${name}`,
+                        message: `${name} cadastrou-se na plataforma`,
+                        customerName: name,
+                        customerEmail: email,
+                        action: 'novo_cliente'
+                    }).catch(err => console.warn("Aviso notif:", err));
+
                     showToast('Restaurante criado com sucesso! Bem-vindo(a).');
                     window.location.hash = '#/admin';
+                    handleRoute();
 
                 } else {
                     const userCreds = await signInWithEmailAndPassword(auth, email, password);
@@ -531,15 +543,12 @@
                             state.currentTenant = null;
                         }
                     } else {
-                        try {
-                            await loadSuperAdminNotifications();
-                        } catch (err) {
-                            console.warn("Aviso: Notificações do admin não carregadas:", err);
-                        }
+                        await loadSuperAdminNotifications().catch(() => {});
                     }
 
                     showToast('Acesso liberado.');
                     window.location.hash = state.isSuperAdmin ? '#/superadmin' : '#/admin';
+                    handleRoute();
                 }
             } catch (error) {
                 console.error(error);
@@ -602,10 +611,7 @@
 
         window.unsubSuperAdminTenants = null;
 
-        // Função para limpar dados de um tenant removido
         async function cleanupTenantData(tenantId) {
-            console.log("Limpando dados do tenant removido:", tenantId);
-            
             try {
                 const productsQuery = query(collection(db, collections.products), where("tenantId", "==", tenantId));
                 const productsSnap = await getDocs(productsQuery);
@@ -635,8 +641,6 @@
                 ]);
                 
                 state.superAdminTenants = state.superAdminTenants.filter(t => t.id !== tenantId);
-                
-                console.log("Dados do tenant limpos com sucesso:", tenantId);
             } catch (err) {
                 console.error("Erro ao limpar dados do tenant:", err);
             }
@@ -676,8 +680,6 @@
                     const removedIds = [...existingIds].filter(id => !currentIds.has(id));
                     
                     if (removedIds.length > 0) {
-                        console.log("Tenants removidos detectados:", removedIds);
-                        
                         state.superAdminTenants = state.superAdminTenants.filter(t => !removedIds.includes(t.id));
                         
                         removedIds.forEach(async (tenantId) => {
@@ -714,7 +716,8 @@
                 contentDiv.innerHTML = getSuperAdminContent(window.location.hash.split('/')[2] || 'dashboard');
             }
         }
-                async function checkPlanExpirations() {
+
+        async function checkPlanExpirations() {
             if (!state.isSuperAdmin) return;
             const batch = writeBatch(db);
             let hasUpdates = false;
@@ -1253,7 +1256,8 @@
                 btn.innerHTML = '<i class="fas fa-save"></i> Salvar Alterações';
             }
         };
-                window.openCreateTenantModal = function() {
+
+        window.openCreateTenantModal = function() {
             const d = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
             const defaultRenewal = d.toISOString().split('T')[0];
 
@@ -1345,7 +1349,7 @@
                     renewalDate: renewalDate,
                     status: 'active',
                     plan: 'pro',
-                    createdAt: serverTimestamp(),
+                    createdAt: Date.now(),
                     settings: { 
                         open: true, 
                         minOrder: 0, 
@@ -1757,7 +1761,8 @@
             }
             loadAdminData();
         };
-                function renderAdminSettings() {
+
+        function renderAdminSettings() {
             const t = state.currentTenant || {};
             return `
                 <div class="max-w-2xl mx-auto space-y-6">
@@ -1895,10 +1900,26 @@
         };
 
         function renderAdminMenuBuilder() {
+            const isOpen = state.currentTenant?.settings?.open !== false;
             return `
                 <div class="mb-6">
                     <h3 class="font-bold text-gray-800 text-lg mb-4">Configurações do Cardápio</h3>
-                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+                        <!-- Botão para Alterar Status Aberto/Fechado -->
+                        <button onclick="toggleTenantOpenStatus()" class="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition text-left group">
+                            <div class="flex items-center gap-3">
+                                <div class="w-12 h-12 ${isOpen ? 'bg-emerald-50 text-emerald-600 group-hover:bg-emerald-100' : 'bg-red-50 text-red-600 group-hover:bg-red-100'} rounded-xl flex items-center justify-center transition shrink-0">
+                                    <i class="fas ${isOpen ? 'fa-door-open' : 'fa-door-closed'} text-xl"></i>
+                                </div>
+                                <div class="min-w-0">
+                                    <p class="font-bold text-gray-800 truncate">Status da Loja</p>
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-black ${isOpen ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}">
+                                        ${isOpen ? 'ABERTO' : 'FECHADO'}
+                                    </span>
+                                </div>
+                            </div>
+                        </button>
+                        
                         <button onclick="openRestaurantNameEditor()" class="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition text-left group">
                             <div class="flex items-center gap-3">
                                 <div class="w-12 h-12 bg-amber-50 group-hover:bg-amber-100 rounded-xl flex items-center justify-center text-amber-600 transition shrink-0">
@@ -1982,6 +2003,31 @@
                 </div>
             `;
         }
+
+        window.toggleTenantOpenStatus = async function() {
+            if (!state.currentTenant) return;
+            const currentOpen = state.currentTenant.settings?.open !== false;
+            const newOpen = !currentOpen;
+
+            if (!state.currentTenant.settings) {
+                state.currentTenant.settings = {};
+            }
+            state.currentTenant.settings.open = newOpen;
+
+            try {
+                const tenantRef = doc(db, collections.tenants, state.currentTenant.id);
+                await setDoc(tenantRef, { settings: { open: newOpen } }, { merge: true });
+                showToast(newOpen ? 'Status alterado para ABERTO!' : 'Status alterado para FECHADO!', newOpen ? 'success' : 'error');
+                
+                const contentDiv = document.getElementById('admin-content');
+                if (contentDiv) {
+                    contentDiv.innerHTML = getAdminContent('cardapio');
+                }
+            } catch (err) {
+                console.error("Erro ao alterar status da loja:", err);
+                showToast("Erro ao alterar status da loja: " + err.message, "error");
+            }
+        };
 
         window.openRestaurantNameEditor = function() {
             const currentName = state.currentTenant?.name || '';
@@ -2336,7 +2382,8 @@
                 btn.disabled = false; btn.innerHTML = 'Salvar Produto';
             }
         }
-                window.openProductEditor = function(productId) {
+
+        window.openProductEditor = function(productId) {
             const product = state.adminProducts.find(p => p.id === productId);
             if (!product) return;
             
@@ -2499,7 +2546,6 @@
                 window.cropperInstance.destroy();
                 window.cropperInstance = null;
             }
-            const currentHash = window.location.hash;
             handleRoute();
         }
 
@@ -2526,9 +2572,7 @@
             window.cropperInstance.destroy();
             window.cropperInstance = null;
             
-            const currentHash = window.location.hash;
             handleRoute();
-            
             showToast('Imagem recortada com sucesso!');
         }
 
@@ -2593,7 +2637,7 @@
                                             <div class="truncate font-medium">${o.customer?.address || '<span class="text-gray-400 italic">Não informado</span>'}</div>
                                         </td>
                                         <td class="p-4">
-                                            <div class="text-xs font-semibold text-gray-800">${o.items.length} item(ns)</div>
+                                            <div class="text-xs font-semibold text-gray-800">${o.items ? o.items.length : 0} item(ns)</div>
                                             ${o.observations ? `<div class="text-[11px] text-amber-600 italic truncate max-w-[180px]" title="${o.observations}"><i class="fas fa-comment-alt mr-1"></i>${o.observations}</div>` : ''}
                                         </td>
                                         <td class="p-4 font-black text-brand-600">${(o.total || 0).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</td>
@@ -2649,7 +2693,6 @@
                                                 </a>
                                             ` : ''}
                                         </div>
-                                        ${!hasWhatsApp ? '<p class="text-[10px] text-gray-400 mt-1">O lojista ainda não cadastrou um número de WhatsApp.</p>' : ''}
                                     </div>
                                 </div>
                             </div>
@@ -2680,7 +2723,7 @@
                                         <i class="fas fa-hamburger text-gray-500"></i> Itens Pedidos & Informações
                                     </h4>
                                     <div class="space-y-2 mb-3">
-                                        ${order.items.map((item) => `
+                                        ${(order.items || []).map((item) => `
                                             <div class="bg-white p-3 rounded-xl border border-gray-200 flex justify-between items-center text-xs">
                                                 <div class="flex items-center gap-2">
                                                     <span class="font-black text-brand-600 bg-brand-50 px-2 py-0.5 rounded">${item.quantity}x</span>
@@ -2737,358 +2780,396 @@
             btn.disabled = true;
             btn.innerHTML = '<div class="loader w-4 h-4 border-2 border-white border-t-transparent mx-auto"></div>';
 
-            const oldOrder = state.adminOrders.find(o => o.id === orderId);
-            if (!oldOrder) {
-                showToast("Pedido não encontrado.", "error");
-                btn.disabled = false;
-                btn.innerHTML = 'Salvar Alterações';
-                return;
-            }
-
-            const newName = document.getElementById('modal-order-name').value.trim();
-            const newPhone = document.getElementById('modal-order-phone').value.trim();
-            const newAddress = document.getElementById('modal-order-address').value.trim();
-            const newObs = document.getElementById('modal-order-obs').value.trim();
-            const newStatus = document.getElementById('modal-order-status').value;
-            const newTotal = parseFloat(document.getElementById('modal-order-total').value) || 0;
-
-            const changes = [];
-            const oldName = oldOrder.customer?.name || '';
-            const oldPhone = oldOrder.customer?.phone || '';
-            const oldAddress = oldOrder.customer?.address || '';
-            const oldObs = oldOrder.observations || '';
-            const oldStatus = oldOrder.status || 'novo';
-            const oldTotal = oldOrder.total || 0;
-
-            if (newName !== oldName) {
-                changes.push({ field: "Nome do Cliente", before: oldName || '(Vazio)', after: newName || '(Vazio)' });
-            }
-            if (newPhone !== oldPhone) {
-                changes.push({ field: "Telefone do Cliente", before: oldPhone || '(Vazio)', after: newPhone || '(Vazio)' });
-            }
-            if (newAddress !== oldAddress) {
-                changes.push({ field: "Endereço de Entrega", before: oldAddress || '(Vazio)', after: newAddress || '(Vazio)' });
-            }
-            if (newObs !== oldObs) {
-                changes.push({ field: "Observações do Pedido (obs)", before: oldObs || '(Nenhuma)', after: newObs || '(Nenhuma)' });
-            }
-            if (newStatus !== oldStatus) {
-                changes.push({ field: "Status do Pedido", before: oldStatus, after: newStatus });
-            }
-            if (Math.abs(newTotal - oldTotal) > 0.001) {
-                changes.push({ field: "Valor Total", before: oldTotal.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'}), after: newTotal.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'}) });
-            }
-
-            if (changes.length === 0) {
-                showToast("Nenhuma alteração foi realizada.");
-                closeModal();
-                return;
-            }
-
-            const author = state.currentUser?.displayName || state.currentTenant?.name || (state.currentUser?.email ? state.currentUser.email.split('@')[0] : 'Administrador');
-
-            const newHistoryItem = {
-                id: generateId(),
-                orderId: orderId,
-                author: author,
-                customerName: oldName || newName || 'Cliente',
-                changes: changes,
-                createdAt: Date.now(),
-                read: false
-            };
-
-            const updatedOrderPayload = {
-                ...oldOrder,
-                customer: {
-                    ...(oldOrder.customer || {}),
-                    name: newName,
-                    phone: newPhone,
-                    address: newAddress
-                },
-                observations: newObs,
-                status: newStatus,
-                total: newTotal,
-                lastModified: Date.now(),
-                lastModifiedBy: author,
-                history: [newHistoryItem, ...(oldOrder.history || [])]
-            };
+            const name = document.getElementById('modal-order-name').value.trim();
+            const phone = document.getElementById('modal-order-phone').value.trim();
+            const address = document.getElementById('modal-order-address').value.trim();
+            const obs = document.getElementById('modal-order-obs').value.trim();
+            const status = document.getElementById('modal-order-status').value;
+            const total = parseFloat(document.getElementById('modal-order-total').value) || 0;
 
             try {
-                const orderRef = doc(db, collections.orders, orderId);
-                await setDoc(orderRef, updatedOrderPayload, { merge: true });
+                const order = state.adminOrders.find(o => o.id === orderId);
+                const changes = [];
 
-                try {
-                    const notifRef = doc(collection(db, collections.notifications));
-                    await setDoc(notifRef, {
-                        tenantId: state.currentTenant?.id || oldOrder.tenantId,
-                        ...newHistoryItem
-                    });
-                } catch (notifErr) {
-                    console.warn("Aviso: Notificação registrada no histórico do pedido.", notifErr);
+                if (order) {
+                    if ((order.customer?.name || '') !== name) changes.push({ field: 'Nome do Cliente', before: order.customer?.name || 'Vazio', after: name });
+                    if ((order.customer?.phone || '') !== phone) changes.push({ field: 'Telefone do Cliente', before: order.customer?.phone || 'Vazio', after: phone });
+                    if ((order.customer?.address || '') !== address) changes.push({ field: 'Endereço', before: order.customer?.address || 'Vazio', after: address });
+                    if ((order.observations || '') !== obs) changes.push({ field: 'Observações', before: order.observations || 'Vazio', after: obs });
+                    if ((order.status || '') !== status) changes.push({ field: 'Status do Pedido', before: order.status || 'novo', after: status });
+                    if ((order.total || 0) !== total) changes.push({ field: 'Total', before: `R$ ${order.total || 0}`, after: `R$ ${total}` });
                 }
 
-                const orderIndex = state.adminOrders.findIndex(o => o.id === orderId);
-                if (orderIndex !== -1) {
-                    state.adminOrders[orderIndex] = updatedOrderPayload;
-                }
-                state.adminNotifications.unshift(newHistoryItem);
+                const updatedOrder = {
+                    customer: { name, phone, address },
+                    observations: obs,
+                    status: status,
+                    total: total,
+                    lastModified: Date.now()
+                };
 
-                showToast(`Alterações salvas e registradas em Notificações!`);
+                if (changes.length > 0) {
+                    const historyEntry = {
+                        id: generateId(),
+                        author: 'Lojista',
+                        customerName: name,
+                        changes: changes,
+                        createdAt: Date.now(),
+                        read: false
+                    };
+                    updatedOrder.history = [...(order?.history || []), historyEntry];
+                }
+
+                await updateDoc(doc(db, collections.orders, orderId), updatedOrder);
+                
+                showToast("Pedido atualizado com sucesso!");
                 closeModal();
                 loadAdminData();
             } catch (err) {
-                console.error("Erro ao salvar alterações do pedido:", err);
-                showToast("Erro ao salvar alterações: " + err.message, "error");
+                console.error("Erro ao salvar pedido:", err);
+                showToast("Erro ao salvar pedido: " + err.message, "error");
                 btn.disabled = false;
-                btn.innerHTML = 'Salvar Alterações';
+                btn.innerHTML = '<i class="fas fa-save"></i> Salvar Alterações';
             }
         };
 
         async function loadPublicMenuData(slug) {
-            const q = query(collection(db, collections.tenants), where("slug", "==", slug));
-            const snap = await getDocs(q);
-            if (snap.empty) {
-                state.publicTenant = null;
-                return;
-            }
-            state.publicTenant = { id: snap.docs[0].id, ...snap.docs[0].data() };
+            try {
+                const q = query(collection(db, collections.tenants), where("slug", "==", slug));
+                const snap = await getDocs(q);
+                
+                if (snap.empty) {
+                    state.publicTenant = null;
+                    state.publicProducts = [];
+                    return;
+                }
 
-            const pq = query(collection(db, collections.products), where("tenantId", "==", state.publicTenant.id));
-            const psnap = await getDocs(pq);
-            state.publicProducts = psnap.docs.map(d => ({ id: d.id, ...d.data() }))
-                .sort((a, b) => {
-                    const orderA = a.order !== undefined ? a.order : 999999;
-                    const orderB = b.order !== undefined ? b.order : 999999;
-                    if (orderA !== orderB) return orderA - orderB;
-                    return (a.createdAt || 0) - (b.createdAt || 0);
-                });
+                const tenantDoc = snap.docs[0];
+                state.publicTenant = { id: tenantDoc.id, ...tenantDoc.data() };
+
+                const pq = query(collection(db, collections.products), where("tenantId", "==", state.publicTenant.id));
+                const psnap = await getDocs(pq);
+                state.publicProducts = psnap.docs
+                    .map(d => ({ id: d.id, ...d.data() }))
+                    .filter(p => p.active !== false)
+                    .sort((a, b) => {
+                        const orderA = a.order !== undefined ? a.order : 999999;
+                        const orderB = b.order !== undefined ? b.order : 999999;
+                        if (orderA !== orderB) return orderA - orderB;
+                        return (a.createdAt || 0) - (b.createdAt || 0);
+                    });
+
+            } catch (error) {
+                console.error("Erro ao carregar cardápio público:", error);
+                state.publicTenant = null;
+                state.publicProducts = [];
+            }
         }
 
         window.renderPublicMenu = function(container) {
-            if (!state.publicTenant) {
-                container.innerHTML = `<div class="min-h-screen flex items-center justify-center flex-col"><i class="fas fa-store-slash text-4xl text-gray-300 mb-4"></i><h2 class="text-xl font-bold">Restaurante não encontrado.</h2><a href="#/" class="text-brand-500 mt-4 font-bold">Voltar</a></div>`;
-                return;
-            }
-
-            if (state.publicTenant.status === 'suspended' || state.publicTenant.status === 'canceled') {
+            const tenant = state.publicTenant;
+            if (!tenant) {
                 container.innerHTML = `
-                    <div class="min-h-screen flex items-center justify-center bg-gray-50 p-4 fade-in">
-                        <div class="bg-white p-8 md:p-12 rounded-3xl shadow-2xl text-center max-w-md w-full border border-gray-100 relative overflow-hidden">
-                            <div class="absolute top-0 left-0 w-full h-2 bg-red-500"></div>
-                            <div class="w-24 h-24 bg-red-50 text-red-500 rounded-full flex items-center justify-center text-5xl mx-auto mb-6 shadow-inner">
-                                <i class="fas fa-lock"></i>
-                            </div>
-                            <h2 class="text-2xl font-black text-gray-800 mb-3">Sistema Congelado</h2>
-                            <p class="text-gray-500 font-medium leading-relaxed mb-6">O cardápio de <strong>${state.publicTenant.name}</strong> encontra-se temporariamente indisponível.</p>
-                            <a href="#/" class="inline-block bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 px-6 rounded-xl transition">Voltar ao Início</a>
-                        </div>
+                    <div class="min-h-screen flex flex-col items-center justify-center p-6 text-center bg-gray-50">
+                        <div class="w-20 h-20 bg-red-100 text-red-500 rounded-full flex items-center justify-center text-3xl mb-4"><i class="fas fa-store-slash"></i></div>
+                        <h2 class="text-2xl font-bold text-gray-800 mb-2">Restaurante não encontrado</h2>
+                        <p class="text-gray-500 mb-6">O link que você acessou não pertence a nenhum restaurante ativo no sistema.</p>
+                        <a href="#/" class="bg-brand-500 text-white font-bold px-6 py-3 rounded-xl hover:bg-brand-600 transition">Voltar ao Início</a>
                     </div>
                 `;
                 return;
             }
 
-            const t = state.publicTenant;
-            const coverImage = t.settings?.coverImage || '';
-            const profileImage = t.settings?.profileImage || '';
-            
+            if (tenant.status === 'suspended') {
+                container.innerHTML = `
+                    <div class="min-h-screen flex flex-col items-center justify-center p-6 text-center bg-gray-900 text-white">
+                        <div class="w-20 h-20 bg-red-500/20 text-red-500 rounded-full flex items-center justify-center text-3xl mb-4"><i class="fas fa-ban"></i></div>
+                        <h2 class="text-2xl font-bold mb-2">Cardápio Temporariamente Indisponível</h2>
+                        <p class="text-gray-400 max-w-md">Este estabelecimento está com o atendimento online suspenso no momento. Por favor, tente novamente mais tarde.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            const settings = tenant.settings || {};
+            const isOpen = settings.open !== false;
+            const coverImage = settings.coverImage || 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=1200';
+            const profileImage = settings.profileImage || '';
+            const totalCartItems = state.cart.reduce((sum, item) => sum + item.quantity, 0);
+
             container.innerHTML = `
-                <div class="min-h-screen bg-gray-50 pb-24 text-sm fade-in">
-                    <div class="h-48 bg-gradient-to-r from-gray-800 to-gray-900 relative" style="${coverImage ? `background-image: url('${coverImage}'); background-size: cover; background-position: center;` : ''}">
-                        <div class="absolute inset-0 bg-black/20"></div>
-                        <div class="absolute -bottom-10 left-4 md:left-12 flex items-end gap-4">
-                            <div class="w-24 h-24 bg-white rounded-2xl shadow-lg border-4 border-white flex items-center justify-center text-3xl font-black text-brand-500 uppercase overflow-hidden" style="${profileImage ? `background-image: url('${profileImage}'); background-size: cover; background-position: center;` : ''}">
-                                ${profileImage ? '' : t.name.charAt(0)}
+                <div class="min-h-screen bg-gray-100 pb-28 fade-in max-w-md md:max-w-4xl mx-auto shadow-xl bg-white min-h-screen">
+                    <!-- Top Cover Image -->
+                    <div class="h-44 md:h-60 w-full bg-cover bg-center relative" style="background-image: url('${coverImage}')">
+                        <div class="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent"></div>
+                    </div>
+
+                    <!-- Store Header Info -->
+                    <div class="px-4 relative -mt-12 mb-6">
+                        <div class="flex items-end justify-between">
+                            <div class="flex items-end gap-3">
+                                <div class="w-20 h-20 md:w-24 md:h-24 rounded-2xl bg-white p-1 shadow-lg ring-2 ring-white overflow-hidden shrink-0">
+                                    ${profileImage ? 
+                                        `<img src="${profileImage}" class="w-full h-full object-cover rounded-xl">` : 
+                                        `<div class="w-full h-full bg-brand-50 text-brand-500 rounded-xl flex items-center justify-center font-black text-2xl">${tenant.name.charAt(0).toUpperCase()}</div>`
+                                    }
+                                </div>
+                                <div class="pb-1">
+                                    <h1 class="text-2xl md:text-3xl font-black text-gray-900 tracking-tight leading-none">${tenant.name}</h1>
+                                    <p class="text-xs font-semibold text-gray-500 mt-1 flex items-center gap-1.5">
+                                        <i class="fab fa-whatsapp text-green-500"></i> ${tenant.phone || 'Sem WhatsApp'}
+                                    </p>
+                                </div>
                             </div>
-                            <div class="mb-4">
-                                <h1 class="text-2xl font-black text-white drop-shadow-md leading-tight mb-1">${t.name}</h1>
-                                <span class="px-2.5 py-0.5 bg-green-500 text-white rounded text-xs font-bold shadow uppercase tracking-wider inline-block">Aberto</span>
+                            <!-- Status Aberto / Fechado Badge -->
+                            <div class="pb-1">
+                                ${isOpen ? `
+                                    <span class="px-3.5 py-1.5 bg-emerald-500 text-white font-black text-xs rounded-full flex items-center gap-1.5 shadow-md animate-pulse">
+                                        <span class="w-2 h-2 bg-white rounded-full"></span> ABERTO
+                                    </span>
+                                ` : `
+                                    <span class="px-3.5 py-1.5 bg-red-600 text-white font-black text-xs rounded-full flex items-center gap-1.5 shadow-md">
+                                        <span class="w-2 h-2 bg-white rounded-full"></span> FECHADO
+                                    </span>
+                                `}
                             </div>
                         </div>
                     </div>
 
-                    <div class="pt-16 px-3 sm:px-6 md:px-12 max-w-5xl mx-auto">
-                        <div class="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4 md:gap-6" id="public-products">
+                    ${!isOpen ? `
+                        <div class="mx-4 mb-6 p-4 bg-red-50 border border-red-200 rounded-2xl text-red-700 text-center text-xs font-bold flex items-center justify-center gap-2">
+                            <i class="fas fa-clock text-red-500 text-base"></i>
+                            <span>O estabelecimento está fechado no momento. Não é possível realizar novos pedidos.</span>
+                        </div>
+                    ` : ''}
+
+                    <!-- Products Grid (Mobile 2 Items Grid) -->
+                    <div class="px-4">
+                        <h2 class="text-lg font-black text-gray-900 mb-4 flex items-center gap-2">
+                            <i class="fas fa-utensils text-brand-500"></i> Cardápio Principal
+                        </h2>
+                        
+                        <div class="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4">
                             ${state.publicProducts.map(p => `
-                                <div class="bg-white rounded-2xl overflow-hidden shadow-sm border border-gray-100 group hover:shadow-md transition flex flex-col justify-between">
+                                <div class="bg-white rounded-2xl p-2.5 border border-gray-100 shadow-sm hover:shadow-md transition flex flex-col justify-between">
                                     <div>
-                                        <div class="product-image-mobile h-32 sm:h-40 md:h-44 bg-gray-100 bg-cover bg-center" style="background-image: url('${p.image || 'https://placehold.co/400x300/eeeeee/999999?text=Sem+Foto'}')"></div>
-                                        <div class="p-3 sm:p-4">
-                                            <h3 class="font-bold text-gray-800 text-sm sm:text-base md:text-lg mb-1 leading-tight line-clamp-2">${p.name}</h3>
-                                            <p class="text-xs text-gray-500 mb-2 line-clamp-2 leading-relaxed">${p.description || ''}</p>
-                                            <div class="font-black text-brand-600 text-sm sm:text-base md:text-lg mb-1">
-                                                ${p.price.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}
-                                            </div>
+                                        <div class="w-full h-32 md:h-40 bg-gray-100 rounded-xl bg-cover bg-center mb-2 overflow-hidden product-image-mobile relative" style="background-image: url('${p.image || 'https://placehold.co/300x300/eeeeee/999999?text=Sem+Foto'}')">
                                         </div>
+                                        <h3 class="font-bold text-gray-800 text-xs md:text-sm leading-snug line-clamp-2 mb-1">${p.name}</h3>
+                                        <p class="text-[11px] text-gray-400 line-clamp-2 mb-2 leading-tight">${p.description || ''}</p>
                                     </div>
-                                    <div class="p-3 sm:p-4 pt-0">
-                                        <button onclick="addToCart('${p.id}')" class="w-full bg-brand-50 hover:bg-brand-500 text-brand-600 hover:text-white py-2 sm:py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 font-bold text-xs sm:text-sm transition shadow-sm">
-                                            <i class="fas fa-plus text-xs"></i>
-                                            <span>Adicionar</span>
+                                    <div>
+                                        <div class="font-black text-brand-600 text-sm md:text-base mb-2">
+                                            ${p.price.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}
+                                        </div>
+                                        <button onclick="addToCart('${p.id}')" ${!isOpen ? 'disabled' : ''} class="w-full py-2 bg-brand-500 hover:bg-brand-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5 shadow-sm">
+                                            <i class="fas fa-plus"></i> Adicionar
                                         </button>
                                     </div>
                                 </div>
                             `).join('')}
-                            ${state.publicProducts.length === 0 ? `<div class="col-span-full py-12 text-center text-gray-500">Este restaurante ainda não possui itens no cardápio.</div>` : ''}
                         </div>
+
+                        ${state.publicProducts.length === 0 ? `
+                            <div class="p-12 text-center text-gray-400 font-medium border-2 border-dashed border-gray-200 rounded-2xl">
+                                Nenhum produto disponível neste cardápio no momento.
+                            </div>
+                        ` : ''}
                     </div>
 
-                    <div class="fixed bottom-0 left-0 w-full p-4 bg-white border-t border-gray-200 shadow-[0_-10px_40px_rgba(0,0,0,0.05)] z-40 transform transition-transform duration-300 ${state.cart.length > 0 ? 'translate-y-0' : 'translate-y-full'}">
-                        <div class="max-w-5xl mx-auto flex gap-4">
-                            <button onclick="renderCart()" class="w-full bg-brand-500 text-white font-bold py-4 rounded-xl shadow-lg shadow-brand-500/30 flex justify-between items-center px-6">
-                                <span class="flex items-center gap-2"><div class="w-6 h-6 bg-white/20 rounded-full flex items-center justify-center text-xs" id="cart-count">${state.cart.length}</div> Ver Carrinho</span>
-                                <span id="cart-total-btn">R$ 0,00</span>
+                    <!-- Floating Cart Bar -->
+                    ${totalCartItems > 0 ? `
+                        <div class="fixed bottom-4 left-0 right-0 max-w-md md:max-w-4xl mx-auto px-4 z-40">
+                            <button onclick="openCartModal()" class="w-full bg-gray-900 hover:bg-black text-white p-4 rounded-2xl shadow-2xl flex items-center justify-between transition transform active:scale-98">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-9 h-9 bg-brand-500 rounded-xl flex items-center justify-center font-black text-sm">
+                                        ${totalCartItems}
+                                    </div>
+                                    <span class="font-bold text-sm">Ver Meu Carrinho</span>
+                                </div>
+                                <div class="font-black text-base text-green-400">
+                                    ${state.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}
+                                </div>
                             </button>
                         </div>
-                    </div>
+                    ` : ''}
                 </div>
             `;
-            updateCartTotal();
         }
 
         window.addToCart = function(productId) {
             const product = state.publicProducts.find(p => p.id === productId);
             if (!product) return;
-            
-            const existing = state.cart.find(item => item.product.id === productId);
-            if (existing) {
-                existing.quantity++;
+
+            const existingIndex = state.cart.findIndex(item => item.id === productId);
+            if (existingIndex > -1) {
+                state.cart[existingIndex].quantity += 1;
             } else {
-                state.cart.push({ product, quantity: 1 });
+                state.cart.push({
+                    id: product.id,
+                    name: product.name,
+                    price: product.price,
+                    quantity: 1,
+                    obs: ''
+                });
             }
-            
-            showToast(`${product.name} adicionado!`);
-            updateCartTotal();
-            
-            if(state.cart.length === 1) handleRoute(); 
-        }
 
-        function updateCartTotal() {
-            const total = state.cart.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
-            const btnTotal = document.getElementById('cart-total-btn');
-            const count = document.getElementById('cart-count');
-            if(btnTotal) btnTotal.innerText = total.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'});
-            if(count) count.innerText = state.cart.reduce((sum, item) => sum + item.quantity, 0);
-        }
+            showToast(`${product.name} adicionado ao carrinho!`);
+            renderPublicMenu(document.getElementById('app'));
+        };
 
-        window.renderCart = function() {
-            const total = state.cart.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
-            
+        window.updateCartQty = function(productId, delta) {
+            const index = state.cart.findIndex(item => item.id === productId);
+            if (index > -1) {
+                state.cart[index].quantity += delta;
+                if (state.cart[index].quantity <= 0) {
+                    state.cart.splice(index, 1);
+                }
+            }
+            openCartModal();
+            renderPublicMenu(document.getElementById('app'));
+        };
+
+        window.openCartModal = function() {
+            const tenant = state.publicTenant;
+            if (!tenant) return;
+
+            const totalCart = state.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+
             const html = `
-                <div class="fixed inset-0 z-50 flex justify-end overlay fade-in">
-                    <div class="bg-white w-full max-w-md h-full flex flex-col shadow-2xl slide-left">
-                        <div class="p-6 border-b flex justify-between items-center bg-gray-50">
-                            <h3 class="font-black text-gray-800 text-xl"><i class="fas fa-shopping-bag text-brand-500 mr-2"></i> Seu Pedido</h3>
-                            <button onclick="closeModal()" class="w-8 h-8 bg-white border rounded-full text-gray-500 hover:text-gray-800 flex items-center justify-center shadow-sm">&times;</button>
+                <div class="fixed inset-0 z-50 flex items-end sm:items-center justify-center overlay fade-in p-0 sm:p-4">
+                    <div class="bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[85vh]">
+                        <div class="p-5 border-b flex justify-between items-center bg-gray-50">
+                            <h3 class="font-bold text-gray-800 text-lg flex items-center gap-2">
+                                <i class="fas fa-shopping-bag text-brand-500"></i> Seu Carrinho
+                            </h3>
+                            <button onclick="closeModal()" class="text-gray-400 hover:text-gray-800 text-2xl leading-none">&times;</button>
                         </div>
                         
-                        <div class="flex-grow overflow-y-auto p-6 space-y-4">
-                            ${state.cart.map((item, index) => `
-                                <div class="flex justify-between items-center pb-4 border-b border-gray-100 last:border-0">
-                                    <div class="flex gap-3 items-center">
-                                        <div class="font-bold text-gray-800">${item.quantity}x</div>
-                                        <div>
-                                            <p class="font-bold text-gray-800">${item.product.name}</p>
-                                            <p class="text-brand-600 font-bold text-xs">${(item.product.price * item.quantity).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</p>
+                        <div class="p-5 overflow-y-auto flex-grow space-y-4">
+                            <div class="space-y-3">
+                                ${state.cart.map(item => `
+                                    <div class="bg-gray-50 p-3 rounded-2xl border border-gray-100 flex items-center justify-between gap-3">
+                                        <div class="min-w-0 flex-grow">
+                                            <h4 class="font-bold text-gray-800 text-sm truncate">${item.name}</h4>
+                                            <span class="text-xs font-bold text-brand-600">${item.price.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</span>
+                                        </div>
+                                        <div class="flex items-center gap-2 bg-white px-2 py-1 rounded-xl border border-gray-200">
+                                            <button onclick="updateCartQty('${item.id}', -1)" class="w-6 h-6 rounded-lg bg-gray-100 text-gray-700 font-bold flex items-center justify-center text-xs">-</button>
+                                            <span class="font-black text-sm w-4 text-center">${item.quantity}</span>
+                                            <button onclick="updateCartQty('${item.id}', 1)" class="w-6 h-6 rounded-lg bg-brand-50 text-brand-600 font-bold flex items-center justify-center text-xs">+</button>
                                         </div>
                                     </div>
-                                    <button onclick="state.cart.splice(${index}, 1); updateCartTotal(); renderCart();" class="text-red-400 hover:text-red-600 p-2"><i class="fas fa-trash"></i></button>
+                                `).join('')}
+                                ${state.cart.length === 0 ? '<p class="text-center text-gray-400 py-8 font-medium">Seu carrinho está vazio.</p>' : ''}
+                            </div>
+
+                            ${state.cart.length > 0 ? `
+                                <div class="pt-4 border-t border-gray-100 space-y-3">
+                                    <div>
+                                        <label class="block text-xs font-bold text-gray-700 mb-1">Seu Nome</label>
+                                        <input type="text" id="cust-name" required placeholder="Como podemos te chamar?" class="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:border-brand-500 text-sm">
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-bold text-gray-700 mb-1">Seu WhatsApp</label>
+                                        <input type="tel" id="cust-phone" required placeholder="(11) 99999-9999" class="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:border-brand-500 text-sm">
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-bold text-gray-700 mb-1">Endereço de Entrega</label>
+                                        <input type="text" id="cust-address" placeholder="Rua, Número, Bairro" class="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:border-brand-500 text-sm">
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-bold text-gray-700 mb-1">Observações do Pedido</label>
+                                        <textarea id="cust-obs" rows="2" placeholder="Sem troco, retirar salada, etc." class="w-full px-3.5 py-2 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:border-brand-500 text-xs resize-none"></textarea>
+                                    </div>
                                 </div>
-                            `).join('')}
-                            ${state.cart.length === 0 ? `<div class="text-center text-gray-400 mt-10"><i class="fas fa-shopping-cart text-4xl mb-3 opacity-20"></i><p>Seu carrinho está vazio.</p></div>` : ''}
+                            ` : ''}
                         </div>
 
                         ${state.cart.length > 0 ? `
-                        <div class="p-6 border-t bg-gray-50 overflow-y-auto max-h-[50vh]">
-                            <div class="flex justify-between items-center mb-4 text-lg">
-                                <span class="font-bold text-gray-600">Total</span>
-                                <span class="font-black text-gray-900">${total.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</span>
-                            </div>
-                            <form onsubmit="checkout(event)" class="space-y-3">
-                                <div>
-                                    <label class="block text-xs font-bold text-gray-700 mb-1">Seu Nome</label>
-                                    <input type="text" id="c-name" required placeholder="Ex: João da Silva" class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-xl outline-none focus:border-brand-500 text-sm">
+                            <div class="p-5 border-t bg-gray-50 space-y-3">
+                                <div class="flex justify-between items-center text-base font-black text-gray-900">
+                                    <span>Total:</span>
+                                    <span class="text-brand-600">${totalCart.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</span>
                                 </div>
-                                <div>
-                                    <label class="block text-xs font-bold text-gray-700 mb-1">WhatsApp / Telefone</label>
-                                    <input type="text" id="c-phone" required placeholder="Ex: (11) 99999-9999" class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-xl outline-none focus:border-brand-500 text-sm">
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-bold text-gray-700 mb-1">Endereço de Entrega</label>
-                                    <input type="text" id="c-address" required placeholder="Rua, Número, Bairro, Compl. / Apto" class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-xl outline-none focus:border-brand-500 text-sm">
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-bold text-gray-700 mb-1">Observações do Pedido (obs)</label>
-                                    <textarea id="c-obs" rows="2" placeholder="Ex: Sem cebola, ponto da carne bem passado, troco para 50, etc." class="w-full px-4 py-2 bg-white border border-gray-300 rounded-xl outline-none focus:border-brand-500 text-sm resize-none"></textarea>
-                                </div>
-                                <button type="submit" id="btn-checkout" class="w-full py-3.5 bg-brand-500 text-white font-black rounded-xl hover:bg-brand-600 shadow-lg shadow-brand-500/30 transition text-base mt-2 flex justify-center items-center">
-                                    Finalizar Pedido
+                                <button onclick="sendWhatsAppOrder()" class="w-full py-3.5 bg-green-500 hover:bg-green-600 text-white font-black rounded-xl shadow-lg shadow-green-500/30 transition flex items-center justify-center gap-2 text-base">
+                                    <i class="fab fa-whatsapp text-xl"></i> Enviar Pedido via WhatsApp
                                 </button>
-                            </form>
-                        </div>
+                            </div>
                         ` : ''}
                     </div>
                 </div>
-                <style>.slide-left { animation: slideLeft 0.3s ease-out; } @keyframes slideLeft { from { transform: translateX(100%); } to { transform: translateX(0); } }</style>
             `;
             openModal(html);
-        }
+        };
 
-        window.checkout = async function(e) {
-            e.preventDefault();
-            if(state.cart.length === 0) return;
-            
-            const btn = document.getElementById('btn-checkout');
-            btn.disabled = true; btn.innerHTML = '<div class="loader w-5 h-5 border-2 border-white border-t-transparent mx-auto"></div>';
+        window.sendWhatsAppOrder = async function() {
+            const tenant = state.publicTenant;
+            if (!tenant) return;
 
-            const name = document.getElementById('c-name').value;
-            const phone = document.getElementById('c-phone').value;
-            const address = document.getElementById('c-address').value;
-            const observations = document.getElementById('c-obs').value;
-            const total = state.cart.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
+            const name = document.getElementById('cust-name').value.trim();
+            const phone = document.getElementById('cust-phone').value.trim();
+            const address = document.getElementById('cust-address').value.trim();
+            const obs = document.getElementById('cust-obs').value.trim();
 
-            const order = {
-                tenantId: state.publicTenant.id,
-                customer: { 
-                    name: name.trim(), 
-                    phone: phone.trim(),
-                    address: address.trim()
-                },
-                observations: observations.trim(),
-                items: state.cart.map(i => ({ 
-                    productId: i.product.id, 
-                    name: i.product.name, 
-                    price: i.product.price, 
-                    quantity: i.quantity 
-                })),
+            if (!name || !phone) {
+                showToast("Por favor, preencha seu Nome e WhatsApp.", "error");
+                return;
+            }
+
+            const total = state.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+
+            const orderData = {
+                tenantId: tenant.id,
+                customer: { name, phone, address },
+                items: state.cart,
+                observations: obs,
                 total: total,
                 status: 'novo',
                 createdAt: Date.now()
             };
 
             try {
-                await setDoc(doc(collection(db, collections.orders)), order);
+                const docRef = doc(collection(db, collections.orders));
+                await setDoc(docRef, orderData);
+
+                // Build WhatsApp message
+                let msg = `* NOVO PEDIDO - ${tenant.name.toUpperCase()} *\n\n`;
+                msg += `*Cliente:* ${name}\n`;
+                msg += `*Telefone:* ${phone}\n`;
+                if (address) msg += `*Endereço:* ${address}\n`;
+                msg += `\n* ITENS:* \n`;
+                
+                state.cart.forEach(item => {
+                    msg += `• ${item.quantity}x ${item.name} - ${(item.price * item.quantity).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}\n`;
+                });
+
+                if (obs) msg += `\n*Obs:* ${obs}\n`;
+                msg += `\n*TOTAL: ${total.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}*`;
+
+                const encodedMsg = encodeURIComponent(msg);
+                const tenantPhoneDigits = (tenant.phone || '').replace(/[^0-9]/g, '');
+
                 state.cart = [];
                 closeModal();
-                
-                openModal(`
-                    <div class="fixed inset-0 z-50 flex items-center justify-center p-4 overlay fade-in">
-                        <div class="bg-white rounded-3xl shadow-2xl p-8 text-center max-w-sm w-full">
-                            <div class="w-20 h-20 bg-green-100 text-green-500 rounded-full flex items-center justify-center text-4xl mx-auto mb-6"><i class="fas fa-check"></i></div>
-                            <h2 class="text-2xl font-black text-gray-800 mb-2">Pedido Enviado!</h2>
-                            <p class="text-gray-500 mb-6">O restaurante já recebeu o seu pedido. Em breve ele começará a ser preparado.</p>
-                            <button onclick="closeModal(); handleRoute();" class="w-full bg-gray-900 text-white font-bold py-3.5 rounded-xl">Fechar</button>
-                        </div>
-                    </div>
-                `);
-            } catch(err) {
-                showToast("Erro ao processar pedido: " + err.message, "error");
-                btn.disabled = false; btn.innerHTML = 'Finalizar Pedido';
-            }
-        }
+                showToast("Pedido enviado com sucesso!");
 
-        window.onload = () => {
-            setupRouter();
+                if (tenantPhoneDigits) {
+                    window.open(`https://wa.me/55${tenantPhoneDigits}?text=${encodedMsg}`, '_blank');
+                } else {
+                    showToast("Pedido registrado no sistema!");
+                }
+                
+                renderPublicMenu(document.getElementById('app'));
+            } catch (err) {
+                console.error("Erro ao enviar pedido:", err);
+                showToast("Erro ao processar pedido: " + err.message, "error");
+            }
+        };
+
+        window.onload = function() {
             initializeAppAuth();
+            setupRouter();
         };
     </script>
 </body>
