@@ -217,6 +217,7 @@
                             console.error("Erro ao carregar perfil da loja:", e);
                         }
                     } else {
+                        // CORREÇÃO: Só carrega notificações se for admin master
                         try {
                             await loadSuperAdminNotifications();
                         } catch (err) {
@@ -239,7 +240,6 @@
         }
 
         window.unsubSuperAdminNotifs = null;
-        window.unsubSuperAdminTenantDeletions = null;
 
         function refreshSuperAdminContent() {
             if (window.location.hash.startsWith('#/superadmin') && document.getElementById('superadmin-content')) {
@@ -258,7 +258,9 @@
             }
         }
 
+        // CORREÇÃO: Função com tratamento de erros melhorado
         async function loadSuperAdminNotifications() {
+            // Verifica se o usuário é admin master
             if (!state.isSuperAdmin || !state.currentUser) {
                 console.log("Usuário não é admin master, pulando notificações");
                 state.superAdminNotifications = [];
@@ -287,6 +289,11 @@
                         resolve();
                     }, (err) => {
                         console.warn("Erro ao carregar notificações do admin:", err);
+                        console.log("Isso geralmente indica que as regras do Firestore precisam ser ajustadas.");
+                        console.log("Acesse: Console Firebase > Firestore Database > Rules");
+                        console.log("Adicione: allow read, write: if request.auth != null;");
+                        
+                        // Limpa a referência para permitir retry na próxima chamada
                         window.unsubSuperAdminNotifs = null;
                         state.superAdminNotifications = [];
                         resolve();
@@ -418,7 +425,7 @@
                                 <label class="block text-sm font-bold text-gray-700 mb-1">E-mail</label>
                                 <div class="relative">
                                     <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-gray-400"><i class="fas fa-envelope"></i></div>
-                                    <input type="email" id="email" required placeholder="seu@email.com" class="w-full pl-11 pr-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-brand-500 outline-none transition bg-gray-50 focus:bg-white">
+                                    <input type="email" id="email" required placeholder="seu@email.com" class="w-full pl-11 pr-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-${isAdmin ? 'purple' : 'brand'}-500 outline-none transition bg-gray-50 focus:bg-white">
                                 </div>
                             </div>
                             
@@ -426,7 +433,7 @@
                                 <label class="block text-sm font-bold text-gray-700 mb-1">Senha</label>
                                 <div class="relative">
                                     <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-gray-400"><i class="fas fa-lock"></i></div>
-                                    <input type="password" id="password" required placeholder="••••••••" class="w-full pl-11 pr-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-brand-500 outline-none transition bg-gray-50 focus:bg-white">
+                                    <input type="password" id="password" required placeholder="••••••••" class="w-full pl-11 pr-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-${isAdmin ? 'purple' : 'brand'}-500 outline-none transition bg-gray-50 focus:bg-white">
                                 </div>
                             </div>
 
@@ -493,6 +500,7 @@
 
                     await setDoc(doc(db, collections.tenants, userCreds.user.uid), tenantData);
 
+                    // CORREÇÃO: Tenta criar notificação mas não falha se não conseguir
                     try {
                         await createAdminNotification({
                             type: 'admin_master',
@@ -506,6 +514,7 @@
                         console.warn("Aviso: Não foi possível criar notificação para admin:", notifErr);
                     }
 
+                    // Otimização: Popula os dados imediatamente no state local para evitar atraso/travamento.
                     state.currentUser = userCreds.user;
                     state.currentTenant = { id: userCreds.user.uid, ...tenantData };
                     state.isSuperAdmin = false;
@@ -519,6 +528,7 @@
                         throw new Error("Acesso administrativo negado.");
                     }
                     
+                    // Otimização: Popula e recupera os dados na mesma requisição para transição rápida.
                     state.currentUser = userCreds.user;
                     state.isSuperAdmin = (email === 'willdalves1@gmail.com');
                     
@@ -531,6 +541,7 @@
                             state.currentTenant = null;
                         }
                     } else {
+                        // CORREÇÃO: Carrega notificações com tratamento de erro
                         try {
                             await loadSuperAdminNotifications();
                         } catch (err) {
@@ -539,6 +550,7 @@
                     }
 
                     showToast('Acesso liberado.');
+                    // Força a navegação imediatamente
                     window.location.hash = state.isSuperAdmin ? '#/superadmin' : '#/admin';
                 }
             } catch (error) {
@@ -560,11 +572,13 @@
                 read: false
             };
 
+            // Sempre atualiza o state local primeiro para feedback imediato
             if (state.isSuperAdmin) {
                 state.superAdminNotifications.unshift(notifObj);
                 refreshSuperAdminContent();
             }
 
+            // Tenta gravar no Firestore
             try {
                 const notifRef = doc(collection(db, collections.adminNotifications));
                 await setDoc(notifRef, {
@@ -572,9 +586,11 @@
                     createdAt: Date.now(),
                     read: false
                 });
+                // Atualiza o ID local com o ID real do Firestore
                 notifObj.id = notifRef.id;
             } catch (err) {
                 console.warn("Erro ao salvar notificação no Firestore:", err);
+                console.log("Verifique as regras do Firestore para permitir escrita na coleção saas_admin_notifications");
             }
         }
 
@@ -584,13 +600,10 @@
             state.currentTenant = null;
             state.isSuperAdmin = false;
             
+            // Limpa os ouvintes de tempo real ao sair
             if (window.unsubSuperAdminTenants) {
                 window.unsubSuperAdminTenants();
                 window.unsubSuperAdminTenants = null;
-            }
-            if (window.unsubSuperAdminTenantDeletions) {
-                window.unsubSuperAdminTenantDeletions();
-                window.unsubSuperAdminTenantDeletions = null;
             }
             if (window.unsubSuperAdminNotifs) {
                 window.unsubSuperAdminNotifs();
@@ -602,49 +615,10 @@
 
         window.unsubSuperAdminTenants = null;
 
-        // Função para limpar dados de um tenant removido
-        async function cleanupTenantData(tenantId) {
-            console.log("Limpando dados do tenant removido:", tenantId);
-            
-            try {
-                const productsQuery = query(collection(db, collections.products), where("tenantId", "==", tenantId));
-                const productsSnap = await getDocs(productsQuery);
-                const productsBatch = writeBatch(db);
-                productsSnap.docs.forEach(doc => {
-                    productsBatch.delete(doc.ref);
-                });
-                
-                const ordersQuery = query(collection(db, collections.orders), where("tenantId", "==", tenantId));
-                const ordersSnap = await getDocs(ordersQuery);
-                const ordersBatch = writeBatch(db);
-                ordersSnap.docs.forEach(doc => {
-                    ordersBatch.delete(doc.ref);
-                });
-                
-                const notifsQuery = query(collection(db, collections.notifications), where("tenantId", "==", tenantId));
-                const notifsSnap = await getDocs(notifsQuery);
-                const notifsBatch = writeBatch(db);
-                notifsSnap.docs.forEach(doc => {
-                    notifsBatch.delete(doc.ref);
-                });
-                
-                await Promise.all([
-                    productsSnap.docs.length > 0 ? productsBatch.commit() : Promise.resolve(),
-                    ordersSnap.docs.length > 0 ? ordersBatch.commit() : Promise.resolve(),
-                    notifsSnap.docs.length > 0 ? notifsBatch.commit() : Promise.resolve()
-                ]);
-                
-                state.superAdminTenants = state.superAdminTenants.filter(t => t.id !== tenantId);
-                
-                console.log("Dados do tenant limpos com sucesso:", tenantId);
-            } catch (err) {
-                console.error("Erro ao limpar dados do tenant:", err);
-            }
-        }
-
         async function loadSuperAdminData() {
             if (!state.isSuperAdmin) return;
             
+            // Carrega lojistas também com ouvinte em tempo real
             const tenantsPromise = new Promise((resolve) => {
                 if (window.unsubSuperAdminTenants) {
                     resolve();
@@ -664,43 +638,9 @@
                 });
             });
 
-            const deletionsPromise = new Promise((resolve) => {
-                if (window.unsubSuperAdminTenantDeletions) {
-                    resolve();
-                    return;
-                }
-                window.unsubSuperAdminTenantDeletions = onSnapshot(collection(db, collections.tenants), (snap) => {
-                    const currentIds = new Set(snap.docs.map(d => d.id));
-                    const existingIds = new Set(state.superAdminTenants.map(t => t.id));
-                    
-                    const removedIds = [...existingIds].filter(id => !currentIds.has(id));
-                    
-                    if (removedIds.length > 0) {
-                        console.log("Tenants removidos detectados:", removedIds);
-                        
-                        state.superAdminTenants = state.superAdminTenants.filter(t => !removedIds.includes(t.id));
-                        
-                        removedIds.forEach(async (tenantId) => {
-                            await cleanupTenantData(tenantId);
-                        });
-                        
-                        if (window.location.hash.startsWith('#/superadmin') && document.getElementById('superadmin-content')) {
-                            const route = window.location.hash.split('/')[2] || 'dashboard';
-                            document.getElementById('superadmin-content').innerHTML = getSuperAdminContent(route);
-                        }
-                        
-                        showToast('Cliente removido do sistema!', 'error');
-                    }
-                    
-                    resolve();
-                }, (err) => {
-                    console.warn("Erro listener deleções:", err);
-                    resolve();
-                });
-            });
-
-            await Promise.all([tenantsPromise, deletionsPromise]);
+            await tenantsPromise;
             
+            // CORREÇÃO: Carrega notificações com tratamento de erro
             try {
                 await loadSuperAdminNotifications();
             } catch (err) {
@@ -714,7 +654,8 @@
                 contentDiv.innerHTML = getSuperAdminContent(window.location.hash.split('/')[2] || 'dashboard');
             }
         }
-                async function checkPlanExpirations() {
+
+        async function checkPlanExpirations() {
             if (!state.isSuperAdmin) return;
             const batch = writeBatch(db);
             let hasUpdates = false;
@@ -724,6 +665,7 @@
                 
                 const today = new Date();
                 today.setHours(0,0,0,0);
+                // Ajusta timezone para evitar bugs de virada de dia
                 const renewalParts = t.renewalDate.split('-');
                 const renewal = new Date(renewalParts[0], renewalParts[1] - 1, renewalParts[2]); 
                 
@@ -757,6 +699,7 @@
                     t.status = updateFields.status || t.status;
                     t.lastNotif = notifType;
 
+                    // CORREÇÃO: Tenta criar notificação mas não falha se não conseguir
                     try {
                         await createAdminNotification({
                             type: 'admin_master',
@@ -1031,8 +974,7 @@
                 </div>
             `;
         }
-
-        window.openTenantDetailsModal = function(tenantId) {
+                window.openTenantDetailsModal = function(tenantId) {
             const tenant = state.superAdminTenants.find(t => t.id === tenantId);
             if (!tenant) return;
 
@@ -1130,46 +1072,12 @@
                                         <i class="fas fa-save"></i> Salvar Alterações
                                     </button>
                                 </div>
-                                <div class="mt-3">
-                                    <button type="button" onclick="deleteTenantCompletely('${tenant.id}')" class="w-full py-3 rounded-xl bg-red-50 text-red-600 font-bold hover:bg-red-100 transition text-sm flex items-center justify-center gap-1.5 border border-red-200">
-                                        <i class="fas fa-trash-alt"></i> Excluir Cliente Permanentemente
-                                    </button>
-                                </div>
                             </form>
                         </div>
                     </div>
                 </div>
             `;
             openModal(html);
-        };
-
-        window.deleteTenantCompletely = async function(tenantId) {
-            const tenant = state.superAdminTenants.find(t => t.id === tenantId);
-            if (!tenant) return;
-            
-            if (!confirm(`ATENÇÃO! Você está prestes a excluir PERMANENTEMENTE o cliente:\n\n${tenant.name}\n\nEsta ação irá:\n- Remover o cliente do sistema\n- Apagar todos os produtos\n- Apagar todos os pedidos\n- Apagar todo o histórico\n\nEsta ação NÃO PODE ser desfeita!\n\nDeseja continuar?`)) {
-                return;
-            }
-            
-            try {
-                await cleanupTenantData(tenantId);
-                await deleteDoc(doc(db, collections.tenants, tenantId));
-                
-                state.superAdminTenants = state.superAdminTenants.filter(t => t.id !== tenantId);
-                
-                showToast('Cliente excluído permanentemente!', 'error');
-                closeModal();
-                
-                await loadSuperAdminData();
-                
-                if (window.location.hash.startsWith('#/superadmin') && document.getElementById('superadmin-content')) {
-                    const route = window.location.hash.split('/')[2] || 'dashboard';
-                    document.getElementById('superadmin-content').innerHTML = getSuperAdminContent(route);
-                }
-            } catch (err) {
-                console.error("Erro ao excluir cliente:", err);
-                showToast("Erro ao excluir cliente: " + err.message, "error");
-            }
         };
 
         window.togglePasswordVisibility = function(inputId) {
@@ -1228,6 +1136,7 @@
                     lastModified: Date.now()
                 };
 
+                // Remove a notificação de vencimento caso o admin renove o plano manualmente
                 if(oldTenant && oldTenant.renewalDate !== renewalDate) {
                     updatedPayload.lastNotif = null; 
                 }
@@ -1243,6 +1152,53 @@
                     state.superAdminTenants[index] = { ...state.superAdminTenants[index], ...updatedPayload };
                 }
 
+                if (oldTenant) {
+                    const changes = [];
+                    if (oldTenant.email !== email) changes.push('email');
+                    if (oldTenant.password !== password) changes.push('senha');
+                    
+                    if(changes.length > 0) {
+                        const message = changes.includes('senha') 
+                            ? `@${name} atualizou a senha no sistema`
+                            : `@${name} atualizou o email de acesso`;
+                        
+                        // CORREÇÃO: Tenta criar notificação mas não falha se não conseguir
+                        try {
+                            await createAdminNotification({
+                                type: 'admin_master',
+                                title: changes.includes('senha') ? 'Senha Atualizada' : 'Email Atualizado',
+                                message: message,
+                                customerName: name,
+                                customerEmail: email,
+                                action: changes.includes('senha') ? 'senha_alterada' : 'email_alterado'
+                            });
+                        } catch (notifErr) {
+                            console.warn("Aviso: Não foi possível criar notificação:", notifErr);
+                        }
+                    }
+
+                    if (oldTenant.status !== status) {
+                        let statusMsg = '';
+                        if (status === 'active') statusMsg = `@${name} foi atualizado para Ativo`;
+                        else if (status === 'suspended') statusMsg = `@${name} foi atualizado para Suspenso`;
+                        else if (status === 'canceled') statusMsg = `@${name} cancelou a assinatura`;
+
+                        if (statusMsg) {
+                            try {
+                                await createAdminNotification({
+                                    type: 'admin_master',
+                                    title: 'Status Alterado',
+                                    message: statusMsg,
+                                    customerName: name,
+                                    action: 'status_alterado'
+                                });
+                            } catch (notifErr) {
+                                console.warn("Aviso: Não foi possível criar notificação:", notifErr);
+                            }
+                        }
+                    }
+                }
+
                 showToast("Dados do lojista atualizados com sucesso!");
                 closeModal();
                 loadSuperAdminData();
@@ -1253,7 +1209,8 @@
                 btn.innerHTML = '<i class="fas fa-save"></i> Salvar Alterações';
             }
         };
-                window.openCreateTenantModal = function() {
+
+        window.openCreateTenantModal = function() {
             const d = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
             const defaultRenewal = d.toISOString().split('T')[0];
 
@@ -1357,6 +1314,7 @@
 
                 await signOutSecondary(secondaryAuth);
 
+                // CORREÇÃO: Tenta criar notificação mas não falha se não conseguir
                 try {
                     await createAdminNotification({
                         type: 'admin_master',
@@ -1536,6 +1494,7 @@
                         </div>
                     </aside>
                     <main class="flex-grow flex flex-col overflow-hidden relative">
+                        <!-- BANNER SISTEMA CONGELADO / SUSPENSO -->
                         ${tenant?.status === 'suspended' ? `
                             <div class="bg-red-600 text-white p-4 shrink-0 flex flex-col sm:flex-row items-center justify-between gap-4 z-20 shadow-md">
                                 <div class="flex items-center gap-3">
@@ -1570,6 +1529,7 @@
                             <div class="flex justify-center h-full items-center"><div class="loader w-8 h-8 border-4 border-gray-200 border-t-brand-500"></div></div>
                         </div>
                         
+                        <!-- Mobile Navigation -->
                         <div class="md:hidden bg-gray-900 text-white flex justify-around p-3 pb-safe border-t border-gray-800 shrink-0">
                              <a href="#/admin/dashboard" class="flex flex-col items-center gap-1 ${subRoute === 'dashboard' ? 'text-brand-500' : 'text-gray-400'}"><i class="fas fa-chart-pie text-xl"></i><span class="text-[10px] font-bold">Início</span></a>
                              <a href="#/admin/pedidos" class="flex flex-col items-center gap-1 ${subRoute === 'pedidos' ? 'text-brand-500' : 'text-gray-400'}"><i class="fas fa-receipt text-xl"></i><span class="text-[10px] font-bold">Pedidos</span></a>
@@ -1590,7 +1550,7 @@
         }
 
         window.openRenewalModal = function() {
-            const phoneNumber = "5511999999999";
+            const phoneNumber = "5511999999999"; // Número do admin master (substitua pelo real)
             const wppMessage = encodeURIComponent(`Olá, sou o restaurante ${state.currentTenant?.name} e gostaria de enviar o comprovante de pagamento para liberação do meu sistema.`);
             const html = `
                 <div class="fixed inset-0 z-50 flex items-center justify-center p-4 overlay fade-in">
@@ -1608,6 +1568,7 @@
                             </div>
                             
                             <div class="bg-gray-50 p-4 rounded-2xl border border-gray-200 inline-block mx-auto shadow-inner">
+                                <!-- Placeholder para QR Code Pix Real -->
                                 <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=00020126360014br.gov.bcb.pix0114+5511999999999520400005303986540599.905802BR5910WA VENDAS6009SAO PAULO62070503***6304" alt="QR Code Pix" class="w-48 h-48 mx-auto rounded-lg">
                             </div>
                             
@@ -1757,7 +1718,8 @@
             }
             loadAdminData();
         };
-                function renderAdminSettings() {
+
+        function renderAdminSettings() {
             const t = state.currentTenant || {};
             return `
                 <div class="max-w-2xl mx-auto space-y-6">
@@ -1821,6 +1783,7 @@
                 state.currentTenant.phone = newPhone;
                 
                 if (oldPhone !== newPhone) {
+                    // CORREÇÃO: Tenta criar notificação mas não falha se não conseguir
                     try {
                         await createAdminNotification({
                             type: 'admin_master',
@@ -1856,6 +1819,7 @@
                 
                 await updateDoc(doc(db, collections.tenants, state.currentTenant.id), { password: newPass });
                 
+                // CORREÇÃO: Tenta criar notificação mas não falha se não conseguir
                 try {
                     await createAdminNotification({
                         type: 'admin_master',
@@ -1872,6 +1836,7 @@
                 document.getElementById('cfg-password').value = '';
                 btn.disabled = false; btn.innerHTML = 'Editar Senha';
 
+                // Mostra o modal de sucesso com a nova senha
                 openModal(`
                     <div class="fixed inset-0 z-50 flex items-center justify-center p-4 overlay fade-in">
                         <div class="bg-white rounded-3xl shadow-2xl p-8 text-center max-w-sm w-full">
@@ -1982,8 +1947,7 @@
                 </div>
             `;
         }
-
-        window.openRestaurantNameEditor = function() {
+                window.openRestaurantNameEditor = function() {
             const currentName = state.currentTenant?.name || '';
             const html = `
                 <div class="fixed inset-0 z-50 flex items-center justify-center p-4 overlay fade-in">
@@ -2048,6 +2012,7 @@
         window.openSlugEditor = function() {
             const currentSlug = state.currentTenant?.slug || '';
             const baseUrl = window.location.href.split('#')[0];
+            const currentFullLink = `${baseUrl}#/cardapio/${currentSlug}`;
 
             const html = `
                 <div class="fixed inset-0 z-50 flex items-center justify-center p-4 overlay fade-in">
@@ -2336,7 +2301,8 @@
                 btn.disabled = false; btn.innerHTML = 'Salvar Produto';
             }
         }
-                window.openProductEditor = function(productId) {
+
+        window.openProductEditor = function(productId) {
             const product = state.adminProducts.find(p => p.id === productId);
             if (!product) return;
             
