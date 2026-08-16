@@ -452,9 +452,6 @@
             `;
         }
 
-        // ==========================================
-        // FUNÇÃO OTIMIZADA PARA CARREGAMENTO INSTANTÂNEO
-        // ==========================================
         window.handleAuthSubmit = async function(event, isRegister, isAdmin) {
             event.preventDefault();
             const btn = document.getElementById('auth-btn');
@@ -473,10 +470,9 @@
                     
                     if(slug.length < 3) throw new Error("Link deve ter pelo menos 3 caracteres.");
 
-                    // 1. Cria usuário Auth
                     const userCreds = await createUserWithEmailAndPassword(auth, email, password);
+                    await updateProfile(userCreds.user, { displayName: name });
                     
-                    // 2. Prepara dados
                     const tenantData = {
                         name: name,
                         slug: slug,
@@ -495,33 +491,29 @@
                         }
                     };
 
-                    // 3. Salva no banco de dados ANTES de qualquer verificação para evitar tela em branco
                     await setDoc(doc(db, collections.tenants, userCreds.user.uid), tenantData);
-                    await updateProfile(userCreds.user, { displayName: name });
 
-                    // 4. Dispara notificação sem travar a tela (sem await)
-                    createAdminNotification({
-                        type: 'admin_master',
-                        title: `Novo Cadastro @${name}`,
-                        message: `${name} cadastrou-se na plataforma`,
-                        customerName: name,
-                        customerEmail: email,
-                        action: 'novo_cliente'
-                    }).catch(notifErr => console.warn(notifErr));
+                    try {
+                        await createAdminNotification({
+                            type: 'admin_master',
+                            title: `Novo Cadastro @${name}`,
+                            message: `${name} cadastrou-se na plataforma`,
+                            customerName: name,
+                            customerEmail: email,
+                            action: 'novo_cliente'
+                        });
+                    } catch (notifErr) {
+                        console.warn("Aviso: Não foi possível criar notificação para admin:", notifErr);
+                    }
 
-                    // 5. Atualiza o estado local imediatamente
                     state.currentUser = userCreds.user;
                     state.currentTenant = { id: userCreds.user.uid, ...tenantData };
                     state.isSuperAdmin = false;
 
                     showToast('Restaurante criado com sucesso! Bem-vindo(a).');
-                    
-                    // 6. Força a rota E a renderização instantânea da tela do painel
                     window.location.hash = '#/admin';
-                    renderAdmin(document.getElementById('app'), '#/admin');
 
                 } else {
-                    // Login
                     const userCreds = await signInWithEmailAndPassword(auth, email, password);
                     if (isAdmin && email !== 'willdalves1@gmail.com') {
                         throw new Error("Acesso administrativo negado.");
@@ -539,21 +531,15 @@
                             state.currentTenant = null;
                         }
                     } else {
-                        // Não espera travar a tela para carregar notificações do super admin
-                        loadSuperAdminNotifications().catch(err => console.warn(err));
+                        try {
+                            await loadSuperAdminNotifications();
+                        } catch (err) {
+                            console.warn("Aviso: Notificações do admin não carregadas:", err);
+                        }
                     }
 
                     showToast('Acesso liberado.');
-                    
-                    // Força renderização instantânea também no login
-                    const targetHash = state.isSuperAdmin ? '#/superadmin' : '#/admin';
-                    window.location.hash = targetHash;
-                    
-                    if (state.isSuperAdmin) {
-                        renderSuperAdmin(document.getElementById('app'), targetHash);
-                    } else {
-                        renderAdmin(document.getElementById('app'), targetHash);
-                    }
+                    window.location.hash = state.isSuperAdmin ? '#/superadmin' : '#/admin';
                 }
             } catch (error) {
                 console.error(error);
@@ -565,7 +551,6 @@
                 btn.disabled = false;
             }
         }
-        // ==========================================
 
         async function createAdminNotification(notificationData) {
             const notifObj = {
@@ -2782,394 +2767,329 @@
                 changes.push({ field: "Telefone do Cliente", before: oldPhone || '(Vazio)', after: newPhone || '(Vazio)' });
             }
             if (newAddress !== oldAddress) {
-                changes.push({ field: "Endereço", before: oldAddress || '(Vazio)', after: newAddress || '(Vazio)' });
+                changes.push({ field: "Endereço de Entrega", before: oldAddress || '(Vazio)', after: newAddress || '(Vazio)' });
             }
             if (newObs !== oldObs) {
-                changes.push({ field: "Observações do Pedido", before: oldObs || '(Vazio)', after: newObs || '(Vazio)' });
+                changes.push({ field: "Observações do Pedido (obs)", before: oldObs || '(Nenhuma)', after: newObs || '(Nenhuma)' });
             }
             if (newStatus !== oldStatus) {
-                const formatStatus = s => s.charAt(0).toUpperCase() + s.slice(1);
-                changes.push({ field: "Status do Pedido", before: formatStatus(oldStatus), after: formatStatus(newStatus) });
+                changes.push({ field: "Status do Pedido", before: oldStatus, after: newStatus });
             }
-            if (newTotal !== oldTotal) {
-                const formatMoney = v => v.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'});
-                changes.push({ field: "Valor Total", before: formatMoney(oldTotal), after: formatMoney(newTotal) });
+            if (Math.abs(newTotal - oldTotal) > 0.001) {
+                changes.push({ field: "Valor Total", before: oldTotal.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'}), after: newTotal.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'}) });
             }
 
             if (changes.length === 0) {
-                showToast("Nenhuma alteração foi feita.");
+                showToast("Nenhuma alteração foi realizada.");
                 closeModal();
                 return;
             }
 
+            const author = state.currentUser?.displayName || state.currentTenant?.name || (state.currentUser?.email ? state.currentUser.email.split('@')[0] : 'Administrador');
+
+            const newHistoryItem = {
+                id: generateId(),
+                orderId: orderId,
+                author: author,
+                customerName: oldName || newName || 'Cliente',
+                changes: changes,
+                createdAt: Date.now(),
+                read: false
+            };
+
+            const updatedOrderPayload = {
+                ...oldOrder,
+                customer: {
+                    ...(oldOrder.customer || {}),
+                    name: newName,
+                    phone: newPhone,
+                    address: newAddress
+                },
+                observations: newObs,
+                status: newStatus,
+                total: newTotal,
+                lastModified: Date.now(),
+                lastModifiedBy: author,
+                history: [newHistoryItem, ...(oldOrder.history || [])]
+            };
+
             try {
-                const updatedCustomer = { ...oldOrder.customer, name: newName, phone: newPhone, address: newAddress };
                 const orderRef = doc(db, collections.orders, orderId);
-                
-                await updateDoc(orderRef, {
-                    customer: updatedCustomer,
-                    observations: newObs,
-                    status: newStatus,
-                    total: newTotal
-                });
+                await setDoc(orderRef, updatedOrderPayload, { merge: true });
 
-                oldOrder.customer = updatedCustomer;
-                oldOrder.observations = newObs;
-                oldOrder.status = newStatus;
-                oldOrder.total = newTotal;
+                try {
+                    const notifRef = doc(collection(db, collections.notifications));
+                    await setDoc(notifRef, {
+                        tenantId: state.currentTenant?.id || oldOrder.tenantId,
+                        ...newHistoryItem
+                    });
+                } catch (notifErr) {
+                    console.warn("Aviso: Notificação registrada no histórico do pedido.", notifErr);
+                }
 
-                const notifRef = doc(collection(db, collections.notifications));
-                const notification = {
-                    tenantId: state.currentTenant.id,
-                    orderId: orderId,
-                    customerName: newName,
-                    action: 'edit_order',
-                    changes: changes,
-                    author: state.currentTenant.name,
-                    createdAt: Date.now(),
-                    read: false
-                };
-                await setDoc(notifRef, notification);
+                const orderIndex = state.adminOrders.findIndex(o => o.id === orderId);
+                if (orderIndex !== -1) {
+                    state.adminOrders[orderIndex] = updatedOrderPayload;
+                }
+                state.adminNotifications.unshift(newHistoryItem);
 
-                showToast("Pedido atualizado com sucesso!");
+                showToast(`Alterações salvas e registradas em Notificações!`);
                 closeModal();
                 loadAdminData();
             } catch (err) {
-                console.error("Erro ao atualizar pedido:", err);
-                showToast("Erro ao salvar: " + err.message, "error");
+                console.error("Erro ao salvar alterações do pedido:", err);
+                showToast("Erro ao salvar alterações: " + err.message, "error");
                 btn.disabled = false;
-                btn.innerHTML = '<i class="fas fa-save"></i> Salvar Alterações';
+                btn.innerHTML = 'Salvar Alterações';
             }
         };
 
         async function loadPublicMenuData(slug) {
-            try {
-                const tq = query(collection(db, collections.tenants), where("slug", "==", slug));
-                const tsnap = await getDocs(tq);
-                if (tsnap.empty) {
-                    state.publicTenant = null;
-                    return;
-                }
-                const tenantDoc = tsnap.docs[0];
-                state.publicTenant = { id: tenantDoc.id, ...tenantDoc.data() };
-
-                const pq = query(collection(db, collections.products), where("tenantId", "==", state.publicTenant.id));
-                const psnap = await getDocs(pq);
-                state.publicProducts = psnap.docs.map(d => ({ id: d.id, ...d.data() }))
-                    .sort((a, b) => {
-                        const orderA = a.order !== undefined ? a.order : 999999;
-                        const orderB = b.order !== undefined ? b.order : 999999;
-                        if (orderA !== orderB) return orderA - orderB;
-                        return (a.createdAt || 0) - (b.createdAt || 0);
-                    });
-            } catch (err) {
-                console.error("Erro ao carregar cardápio:", err);
+            const q = query(collection(db, collections.tenants), where("slug", "==", slug));
+            const snap = await getDocs(q);
+            if (snap.empty) {
+                state.publicTenant = null;
+                return;
             }
+            state.publicTenant = { id: snap.docs[0].id, ...snap.docs[0].data() };
+
+            const pq = query(collection(db, collections.products), where("tenantId", "==", state.publicTenant.id));
+            const psnap = await getDocs(pq);
+            state.publicProducts = psnap.docs.map(d => ({ id: d.id, ...d.data() }))
+                .sort((a, b) => {
+                    const orderA = a.order !== undefined ? a.order : 999999;
+                    const orderB = b.order !== undefined ? b.order : 999999;
+                    if (orderA !== orderB) return orderA - orderB;
+                    return (a.createdAt || 0) - (b.createdAt || 0);
+                });
         }
 
         window.renderPublicMenu = function(container) {
-            const tenant = state.publicTenant;
-            if (!tenant) {
+            if (!state.publicTenant) {
+                container.innerHTML = `<div class="min-h-screen flex items-center justify-center flex-col"><i class="fas fa-store-slash text-4xl text-gray-300 mb-4"></i><h2 class="text-xl font-bold">Restaurante não encontrado.</h2><a href="#/" class="text-brand-500 mt-4 font-bold">Voltar</a></div>`;
+                return;
+            }
+
+            if (state.publicTenant.status === 'suspended' || state.publicTenant.status === 'canceled') {
                 container.innerHTML = `
-                    <div class="min-h-screen flex items-center justify-center bg-gray-50">
-                        <div class="text-center p-8 bg-white rounded-3xl shadow-xl max-w-sm">
-                            <div class="w-20 h-20 bg-red-100 text-red-500 rounded-full flex items-center justify-center text-4xl mx-auto mb-4"><i class="fas fa-store-slash"></i></div>
-                            <h2 class="text-2xl font-black text-gray-800 mb-2">Restaurante não encontrado</h2>
-                            <p class="text-gray-500">Verifique se o link está correto.</p>
-                            <button onclick="window.location.hash='#/'" class="mt-6 bg-gray-900 text-white px-6 py-2.5 rounded-xl font-bold">Ir para Início</button>
+                    <div class="min-h-screen flex items-center justify-center bg-gray-50 p-4 fade-in">
+                        <div class="bg-white p-8 md:p-12 rounded-3xl shadow-2xl text-center max-w-md w-full border border-gray-100 relative overflow-hidden">
+                            <div class="absolute top-0 left-0 w-full h-2 bg-red-500"></div>
+                            <div class="w-24 h-24 bg-red-50 text-red-500 rounded-full flex items-center justify-center text-5xl mx-auto mb-6 shadow-inner">
+                                <i class="fas fa-lock"></i>
+                            </div>
+                            <h2 class="text-2xl font-black text-gray-800 mb-3">Sistema Congelado</h2>
+                            <p class="text-gray-500 font-medium leading-relaxed mb-6">O cardápio de <strong>${state.publicTenant.name}</strong> encontra-se temporariamente indisponível.</p>
+                            <a href="#/" class="inline-block bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 px-6 rounded-xl transition">Voltar ao Início</a>
                         </div>
                     </div>
                 `;
                 return;
             }
 
-            if (tenant.status === 'suspended') {
-                container.innerHTML = `
-                    <div class="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-                        <div class="text-center p-8 bg-white rounded-3xl shadow-2xl max-w-md w-full border border-gray-100">
-                            <div class="w-24 h-24 bg-red-50 text-red-500 rounded-full flex items-center justify-center text-5xl mx-auto mb-6 shadow-inner"><i class="fas fa-lock"></i></div>
-                            <h2 class="text-2xl font-black text-gray-900 mb-3">Cardápio Indisponível</h2>
-                            <p class="text-gray-500 text-sm leading-relaxed mb-8">O cardápio deste restaurante está temporariamente fora do ar. Por favor, tente novamente mais tarde ou entre em contato com o estabelecimento.</p>
-                            ${tenant.phone ? `
-                                <a href="https://wa.me/55${tenant.phone.replace(/[^0-9]/g, '')}" target="_blank" class="w-full bg-green-500 text-white px-6 py-3.5 rounded-xl font-black hover:bg-green-600 transition shadow-lg shadow-green-500/30 flex items-center justify-center gap-2">
-                                    <i class="fab fa-whatsapp text-xl"></i> Falar com o Restaurante
-                                </a>
-                            ` : ''}
-                        </div>
-                    </div>
-                `;
-                return;
-            }
-
-            const coverImg = tenant.settings?.coverImage || 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?q=80&w=2070&auto=format&fit=crop';
-            const profileImg = tenant.settings?.profileImage || 'https://placehold.co/200x200/ef4444/ffffff?text=' + tenant.name.charAt(0).toUpperCase();
-            const isOpen = tenant.settings?.open !== false;
+            const t = state.publicTenant;
+            const coverImage = t.settings?.coverImage || '';
+            const profileImage = t.settings?.profileImage || '';
             
-            const cartTotal = state.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-            const cartItemCount = state.cart.reduce((sum, item) => sum + item.quantity, 0);
-
             container.innerHTML = `
-                <div class="min-h-screen bg-gray-50 pb-24 fade-in font-sans">
-                    <div class="h-48 md:h-64 w-full bg-gray-300 relative">
-                        <img src="${coverImg}" class="w-full h-full object-cover">
-                        <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent"></div>
-                        <div class="absolute top-4 right-4 flex gap-2">
-                            ${isOpen 
-                                ? '<div class="bg-green-500/90 backdrop-blur-sm text-white px-3 py-1 rounded-full text-xs font-black shadow-lg flex items-center gap-1.5 border border-green-400/50"><span class="w-2 h-2 rounded-full bg-white animate-pulse"></span> ABERTO</div>' 
-                                : '<div class="bg-red-500/90 backdrop-blur-sm text-white px-3 py-1 rounded-full text-xs font-black shadow-lg border border-red-400/50">FECHADO</div>'}
-                        </div>
-                    </div>
-
-                    <div class="max-w-4xl mx-auto px-4 sm:px-6 relative -mt-16 md:-mt-20">
-                        <div class="bg-white rounded-3xl shadow-xl p-6 md:p-8 flex flex-col md:flex-row items-center md:items-end gap-4 md:gap-6 border border-gray-100">
-                            <img src="${profileImg}" class="w-28 h-28 md:w-36 md:h-36 rounded-2xl border-4 border-white shadow-lg object-cover bg-white shrink-0 -mt-12 md:-mt-16">
-                            <div class="text-center md:text-left flex-grow">
-                                <h1 class="text-2xl md:text-3xl font-black text-gray-900 leading-tight">${tenant.name}</h1>
-                                <p class="text-gray-500 text-sm mt-1 flex items-center justify-center md:justify-start gap-2">
-                                    <i class="fas fa-motorcycle text-brand-500"></i> Delivery Rápido
-                                </p>
+                <div class="min-h-screen bg-gray-50 pb-24 text-sm fade-in">
+                    <div class="h-48 bg-gradient-to-r from-gray-800 to-gray-900 relative" style="${coverImage ? `background-image: url('${coverImage}'); background-size: cover; background-position: center;` : ''}">
+                        <div class="absolute inset-0 bg-black/20"></div>
+                        <div class="absolute -bottom-10 left-4 md:left-12 flex items-end gap-4">
+                            <div class="w-24 h-24 bg-white rounded-2xl shadow-lg border-4 border-white flex items-center justify-center text-3xl font-black text-brand-500 uppercase overflow-hidden" style="${profileImage ? `background-image: url('${profileImage}'); background-size: cover; background-position: center;` : ''}">
+                                ${profileImage ? '' : t.name.charAt(0)}
+                            </div>
+                            <div class="mb-4">
+                                <h1 class="text-2xl font-black text-white drop-shadow-md leading-tight mb-1">${t.name}</h1>
+                                <span class="px-2.5 py-0.5 bg-green-500 text-white rounded text-xs font-bold shadow uppercase tracking-wider inline-block">Aberto</span>
                             </div>
                         </div>
+                    </div>
 
-                        <div class="mt-8">
-                            <h3 class="text-lg font-black text-gray-800 mb-6 flex items-center gap-2 px-2">
-                                <i class="fas fa-fire text-brand-500"></i> Nosso Cardápio
-                            </h3>
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                ${state.publicProducts.map(p => `
-                                    <div class="bg-white rounded-3xl p-3 border border-gray-100 shadow-sm hover:shadow-md transition flex items-center gap-4 group cursor-pointer" onclick="openProductDetail('${p.id}')">
-                                        <div class="w-28 h-28 md:w-32 md:h-32 rounded-2xl flex-shrink-0 bg-cover bg-center shadow-inner product-image-mobile border border-gray-50" style="background-image: url('${p.image || 'https://placehold.co/150x150/eeeeee/999999?text=Sem+Foto'}')"></div>
-                                        <div class="flex-grow min-w-0 py-1 pr-2">
-                                            <h4 class="font-bold text-gray-800 text-base leading-tight mb-1 group-hover:text-brand-600 transition truncate">${p.name}</h4>
-                                            <p class="text-xs text-gray-500 line-clamp-2 mb-2 leading-relaxed">${p.description || ''}</p>
-                                            <div class="flex items-center justify-between mt-auto">
-                                                <span class="text-brand-600 font-black text-base">${p.price.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</span>
-                                                <button class="w-8 h-8 rounded-full bg-brand-50 text-brand-600 flex items-center justify-center group-hover:bg-brand-500 group-hover:text-white transition shadow-sm">
-                                                    <i class="fas fa-plus text-sm"></i>
-                                                </button>
+                    <div class="pt-16 px-3 sm:px-6 md:px-12 max-w-5xl mx-auto">
+                        <div class="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4 md:gap-6" id="public-products">
+                            ${state.publicProducts.map(p => `
+                                <div class="bg-white rounded-2xl overflow-hidden shadow-sm border border-gray-100 group hover:shadow-md transition flex flex-col justify-between">
+                                    <div>
+                                        <div class="product-image-mobile h-32 sm:h-40 md:h-44 bg-gray-100 bg-cover bg-center" style="background-image: url('${p.image || 'https://placehold.co/400x300/eeeeee/999999?text=Sem+Foto'}')"></div>
+                                        <div class="p-3 sm:p-4">
+                                            <h3 class="font-bold text-gray-800 text-sm sm:text-base md:text-lg mb-1 leading-tight line-clamp-2">${p.name}</h3>
+                                            <p class="text-xs text-gray-500 mb-2 line-clamp-2 leading-relaxed">${p.description || ''}</p>
+                                            <div class="font-black text-brand-600 text-sm sm:text-base md:text-lg mb-1">
+                                                ${p.price.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}
                                             </div>
                                         </div>
                                     </div>
-                                `).join('')}
-                                ${state.publicProducts.length === 0 ? `<div class="col-span-full p-12 text-center text-gray-400 font-medium bg-white rounded-3xl border border-gray-100 shadow-sm">Nenhum produto disponível no momento.</div>` : ''}
-                            </div>
-                        </div>
-                    </div>
-
-                    ${state.cart.length > 0 ? `
-                        <div class="fixed bottom-0 left-0 w-full bg-white border-t border-gray-200 p-4 pb-safe shadow-[0_-10px_40px_rgba(0,0,0,0.1)] z-40 transform transition-transform">
-                            <div class="max-w-4xl mx-auto flex items-center justify-between gap-4">
-                                <div class="flex items-center gap-3">
-                                    <div class="w-12 h-12 bg-brand-50 text-brand-600 rounded-2xl flex items-center justify-center text-xl font-black relative shadow-inner">
-                                        <i class="fas fa-shopping-bag"></i>
-                                        <span class="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] w-5 h-5 flex items-center justify-center rounded-full font-bold shadow-sm">${cartItemCount}</span>
-                                    </div>
-                                    <div class="hidden sm:block">
-                                        <p class="text-xs text-gray-500 font-bold uppercase tracking-wider">Total do Pedido</p>
-                                        <p class="text-lg font-black text-gray-900">${cartTotal.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</p>
-                                    </div>
-                                </div>
-                                <button onclick="openCartModal()" class="flex-grow sm:flex-grow-0 bg-brand-500 text-white px-8 py-3.5 rounded-2xl font-black hover:bg-brand-600 transition shadow-lg shadow-brand-500/30 flex items-center justify-center gap-2 text-sm sm:text-base">
-                                    Ver Sacola <span class="sm:hidden ml-1">(${cartTotal.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})})</span> <i class="fas fa-arrow-right ml-1"></i>
-                                </button>
-                            </div>
-                        </div>
-                    ` : ''}
-                </div>
-            `;
-        }
-
-        window.openProductDetail = function(productId) {
-            const product = state.publicProducts.find(p => p.id === productId);
-            if (!product) return;
-
-            window.tempCartItem = { ...product, quantity: 1, obs: '' };
-
-            const html = `
-                <div class="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-0 sm:p-4 fade-in">
-                    <div class="bg-white w-full max-w-md overflow-hidden flex flex-col rounded-t-[2rem] sm:rounded-3xl shadow-2xl max-h-[90vh] transform transition-transform">
-                        <div class="relative h-64 sm:h-72 w-full bg-gray-100 shrink-0">
-                            <img src="${product.image || 'https://placehold.co/600x400/eeeeee/999999?text=Sem+Foto'}" class="w-full h-full object-cover">
-                            <div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
-                            <button onclick="closeModal()" class="absolute top-4 right-4 w-10 h-10 bg-white/20 backdrop-blur-md rounded-full text-white flex items-center justify-center hover:bg-white/40 transition">
-                                <i class="fas fa-times text-lg"></i>
-                            </button>
-                        </div>
-                        
-                        <div class="p-6 overflow-y-auto flex-grow bg-gray-50 -mt-6 rounded-t-3xl relative z-10 shadow-[0_-10px_20px_rgba(0,0,0,0.05)]">
-                            <div class="flex justify-between items-start gap-4 mb-3">
-                                <h3 class="font-black text-gray-900 text-2xl leading-tight">${product.name}</h3>
-                                <span class="font-black text-brand-600 text-xl whitespace-nowrap bg-brand-50 px-3 py-1 rounded-xl">${product.price.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</span>
-                            </div>
-                            <p class="text-sm text-gray-600 leading-relaxed mb-6">${product.description || 'Sem descrição.'}</p>
-                            
-                            <div class="space-y-4">
-                                <div>
-                                    <label class="block text-sm font-bold text-gray-800 mb-2 flex items-center gap-2"><i class="fas fa-comment-dots text-gray-400"></i> Observações</label>
-                                    <textarea id="temp-obs" rows="2" placeholder="Ex: Tirar cebola, maionese à parte..." class="w-full px-4 py-3 bg-white border border-gray-200 rounded-2xl outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 transition resize-none text-sm" onchange="window.tempCartItem.obs = this.value"></textarea>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="p-4 bg-white border-t border-gray-100 shrink-0 flex items-center gap-4 shadow-[0_-10px_40px_rgba(0,0,0,0.05)] pb-safe">
-                            <div class="flex items-center bg-gray-100 rounded-2xl p-1 border border-gray-200 shadow-inner">
-                                <button onclick="updateTempQuantity(-1)" class="w-10 h-10 rounded-xl bg-white text-gray-600 flex items-center justify-center font-bold hover:text-brand-600 shadow-sm"><i class="fas fa-minus text-xs"></i></button>
-                                <span id="temp-qtd" class="w-10 text-center font-black text-gray-900">1</span>
-                                <button onclick="updateTempQuantity(1)" class="w-10 h-10 rounded-xl bg-white text-gray-600 flex items-center justify-center font-bold hover:text-brand-600 shadow-sm"><i class="fas fa-plus text-xs"></i></button>
-                            </div>
-                            <button onclick="addToCart()" class="flex-grow bg-brand-500 text-white py-3.5 px-4 rounded-2xl font-black hover:bg-brand-600 transition shadow-lg shadow-brand-500/30 flex items-center justify-between">
-                                <span>Adicionar</span>
-                                <span id="temp-total">${product.price.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</span>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            `;
-            openModal(html);
-        }
-
-        window.updateTempQuantity = function(change) {
-            const newQtd = window.tempCartItem.quantity + change;
-            if (newQtd >= 1) {
-                window.tempCartItem.quantity = newQtd;
-                document.getElementById('temp-qtd').innerText = newQtd;
-                document.getElementById('temp-total').innerText = (window.tempCartItem.price * newQtd).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'});
-            }
-        }
-
-        window.addToCart = function() {
-            state.cart.push({ ...window.tempCartItem, cartId: generateId() });
-            showToast('Item adicionado à sacola!');
-            closeModal();
-            renderPublicMenu(document.getElementById('app'));
-        }
-
-        window.openCartModal = function() {
-            const cartTotal = state.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-            
-            const html = `
-                <div class="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-0 sm:p-4 fade-in">
-                    <div class="bg-gray-50 w-full max-w-md overflow-hidden flex flex-col rounded-t-[2rem] sm:rounded-3xl shadow-2xl max-h-[90vh]">
-                        <div class="p-5 border-b border-gray-200 bg-white flex justify-between items-center shrink-0 rounded-t-[2rem] sm:rounded-t-3xl shadow-sm z-10">
-                            <h3 class="font-black text-gray-900 text-lg flex items-center gap-2">
-                                <i class="fas fa-shopping-bag text-brand-500"></i> Sua Sacola
-                            </h3>
-                            <button onclick="closeModal()" class="w-8 h-8 bg-gray-100 rounded-full text-gray-500 hover:bg-gray-200 hover:text-gray-800 transition flex items-center justify-center">
-                                <i class="fas fa-times"></i>
-                            </button>
-                        </div>
-                        
-                        <div class="p-4 overflow-y-auto flex-grow space-y-3 relative">
-                            ${state.cart.map(item => `
-                                <div class="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex gap-4">
-                                    <div class="flex-grow min-w-0">
-                                        <div class="flex justify-between items-start gap-2 mb-1">
-                                            <h4 class="font-bold text-gray-800 text-sm leading-tight">${item.quantity}x ${item.name}</h4>
-                                            <span class="font-black text-brand-600 text-sm whitespace-nowrap">${(item.price * item.quantity).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</span>
-                                        </div>
-                                        ${item.obs ? `<p class="text-xs text-amber-600 italic mb-2"><i class="fas fa-comment-alt mr-1"></i>${item.obs}</p>` : ''}
-                                        <button onclick="removeFromCart('${item.cartId}')" class="text-xs text-red-500 font-bold hover:underline mt-1"><i class="fas fa-trash-alt mr-1"></i>Remover</button>
+                                    <div class="p-3 sm:p-4 pt-0">
+                                        <button onclick="addToCart('${p.id}')" class="w-full bg-brand-50 hover:bg-brand-500 text-brand-600 hover:text-white py-2 sm:py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 font-bold text-xs sm:text-sm transition shadow-sm">
+                                            <i class="fas fa-plus text-xs"></i>
+                                            <span>Adicionar</span>
+                                        </button>
                                     </div>
                                 </div>
                             `).join('')}
-                            
-                            <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 mt-6">
-                                <h4 class="font-black text-gray-800 text-sm mb-4 border-b pb-2"><i class="fas fa-motorcycle text-brand-500 mr-2"></i>Dados da Entrega</h4>
-                                <div class="space-y-3">
-                                    <div>
-                                        <label class="block text-xs font-bold text-gray-700 mb-1">Seu Nome</label>
-                                        <input type="text" id="checkout-name" required class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-brand-500 focus:bg-white transition text-sm">
-                                    </div>
-                                    <div>
-                                        <label class="block text-xs font-bold text-gray-700 mb-1">Endereço Completo</label>
-                                        <input type="text" id="checkout-address" required placeholder="Rua, Número, Bairro" class="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-brand-500 focus:bg-white transition text-sm">
-                                    </div>
-                                </div>
-                            </div>
+                            ${state.publicProducts.length === 0 ? `<div class="col-span-full py-12 text-center text-gray-500">Este restaurante ainda não possui itens no cardápio.</div>` : ''}
                         </div>
+                    </div>
 
-                        <div class="p-5 bg-white border-t border-gray-200 shrink-0 shadow-[0_-10px_40px_rgba(0,0,0,0.05)] pb-safe z-10">
-                            <div class="flex justify-between items-center mb-4">
-                                <span class="text-sm font-bold text-gray-500 uppercase tracking-wider">Total</span>
-                                <span class="text-2xl font-black text-gray-900">${cartTotal.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</span>
-                            </div>
-                            <button onclick="finishOrder()" class="w-full bg-brand-500 text-white py-4 rounded-2xl font-black hover:bg-brand-600 transition shadow-xl shadow-brand-500/30 flex items-center justify-center gap-2 text-lg">
-                                <i class="fab fa-whatsapp text-xl"></i> Enviar Pedido
+                    <div class="fixed bottom-0 left-0 w-full p-4 bg-white border-t border-gray-200 shadow-[0_-10px_40px_rgba(0,0,0,0.05)] z-40 transform transition-transform duration-300 ${state.cart.length > 0 ? 'translate-y-0' : 'translate-y-full'}">
+                        <div class="max-w-5xl mx-auto flex gap-4">
+                            <button onclick="renderCart()" class="w-full bg-brand-500 text-white font-bold py-4 rounded-xl shadow-lg shadow-brand-500/30 flex justify-between items-center px-6">
+                                <span class="flex items-center gap-2"><div class="w-6 h-6 bg-white/20 rounded-full flex items-center justify-center text-xs" id="cart-count">${state.cart.length}</div> Ver Carrinho</span>
+                                <span id="cart-total-btn">R$ 0,00</span>
                             </button>
                         </div>
                     </div>
                 </div>
             `;
+            updateCartTotal();
+        }
+
+        window.addToCart = function(productId) {
+            const product = state.publicProducts.find(p => p.id === productId);
+            if (!product) return;
+            
+            const existing = state.cart.find(item => item.product.id === productId);
+            if (existing) {
+                existing.quantity++;
+            } else {
+                state.cart.push({ product, quantity: 1 });
+            }
+            
+            showToast(`${product.name} adicionado!`);
+            updateCartTotal();
+            
+            if(state.cart.length === 1) handleRoute(); 
+        }
+
+        function updateCartTotal() {
+            const total = state.cart.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
+            const btnTotal = document.getElementById('cart-total-btn');
+            const count = document.getElementById('cart-count');
+            if(btnTotal) btnTotal.innerText = total.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'});
+            if(count) count.innerText = state.cart.reduce((sum, item) => sum + item.quantity, 0);
+        }
+
+        window.renderCart = function() {
+            const total = state.cart.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
+            
+            const html = `
+                <div class="fixed inset-0 z-50 flex justify-end overlay fade-in">
+                    <div class="bg-white w-full max-w-md h-full flex flex-col shadow-2xl slide-left">
+                        <div class="p-6 border-b flex justify-between items-center bg-gray-50">
+                            <h3 class="font-black text-gray-800 text-xl"><i class="fas fa-shopping-bag text-brand-500 mr-2"></i> Seu Pedido</h3>
+                            <button onclick="closeModal()" class="w-8 h-8 bg-white border rounded-full text-gray-500 hover:text-gray-800 flex items-center justify-center shadow-sm">&times;</button>
+                        </div>
+                        
+                        <div class="flex-grow overflow-y-auto p-6 space-y-4">
+                            ${state.cart.map((item, index) => `
+                                <div class="flex justify-between items-center pb-4 border-b border-gray-100 last:border-0">
+                                    <div class="flex gap-3 items-center">
+                                        <div class="font-bold text-gray-800">${item.quantity}x</div>
+                                        <div>
+                                            <p class="font-bold text-gray-800">${item.product.name}</p>
+                                            <p class="text-brand-600 font-bold text-xs">${(item.product.price * item.quantity).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</p>
+                                        </div>
+                                    </div>
+                                    <button onclick="state.cart.splice(${index}, 1); updateCartTotal(); renderCart();" class="text-red-400 hover:text-red-600 p-2"><i class="fas fa-trash"></i></button>
+                                </div>
+                            `).join('')}
+                            ${state.cart.length === 0 ? `<div class="text-center text-gray-400 mt-10"><i class="fas fa-shopping-cart text-4xl mb-3 opacity-20"></i><p>Seu carrinho está vazio.</p></div>` : ''}
+                        </div>
+
+                        ${state.cart.length > 0 ? `
+                        <div class="p-6 border-t bg-gray-50 overflow-y-auto max-h-[50vh]">
+                            <div class="flex justify-between items-center mb-4 text-lg">
+                                <span class="font-bold text-gray-600">Total</span>
+                                <span class="font-black text-gray-900">${total.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</span>
+                            </div>
+                            <form onsubmit="checkout(event)" class="space-y-3">
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-700 mb-1">Seu Nome</label>
+                                    <input type="text" id="c-name" required placeholder="Ex: João da Silva" class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-xl outline-none focus:border-brand-500 text-sm">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-700 mb-1">WhatsApp / Telefone</label>
+                                    <input type="text" id="c-phone" required placeholder="Ex: (11) 99999-9999" class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-xl outline-none focus:border-brand-500 text-sm">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-700 mb-1">Endereço de Entrega</label>
+                                    <input type="text" id="c-address" required placeholder="Rua, Número, Bairro, Compl. / Apto" class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-xl outline-none focus:border-brand-500 text-sm">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-700 mb-1">Observações do Pedido (obs)</label>
+                                    <textarea id="c-obs" rows="2" placeholder="Ex: Sem cebola, ponto da carne bem passado, troco para 50, etc." class="w-full px-4 py-2 bg-white border border-gray-300 rounded-xl outline-none focus:border-brand-500 text-sm resize-none"></textarea>
+                                </div>
+                                <button type="submit" id="btn-checkout" class="w-full py-3.5 bg-brand-500 text-white font-black rounded-xl hover:bg-brand-600 shadow-lg shadow-brand-500/30 transition text-base mt-2 flex justify-center items-center">
+                                    Finalizar Pedido
+                                </button>
+                            </form>
+                        </div>
+                        ` : ''}
+                    </div>
+                </div>
+                <style>.slide-left { animation: slideLeft 0.3s ease-out; } @keyframes slideLeft { from { transform: translateX(100%); } to { transform: translateX(0); } }</style>
+            `;
             openModal(html);
         }
 
-        window.removeFromCart = function(cartId) {
-            state.cart = state.cart.filter(i => i.cartId !== cartId);
-            if (state.cart.length === 0) {
-                closeModal();
-                renderPublicMenu(document.getElementById('app'));
-            } else {
-                openCartModal();
-            }
-        }
+        window.checkout = async function(e) {
+            e.preventDefault();
+            if(state.cart.length === 0) return;
+            
+            const btn = document.getElementById('btn-checkout');
+            btn.disabled = true; btn.innerHTML = '<div class="loader w-5 h-5 border-2 border-white border-t-transparent mx-auto"></div>';
 
-        window.finishOrder = async function() {
-            const name = document.getElementById('checkout-name').value.trim();
-            const address = document.getElementById('checkout-address').value.trim();
+            const name = document.getElementById('c-name').value;
+            const phone = document.getElementById('c-phone').value;
+            const address = document.getElementById('c-address').value;
+            const observations = document.getElementById('c-obs').value;
+            const total = state.cart.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
 
-            if (!name || !address) {
-                showToast("Preencha nome e endereço para entrega.", "error");
-                return;
-            }
-
-            const btn = document.querySelector('button[onclick="finishOrder()"]');
-            btn.disabled = true;
-            btn.innerHTML = '<div class="loader w-5 h-5 border-2 border-white border-t-transparent mx-auto"></div>';
-
-            const total = state.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-            const orderData = {
+            const order = {
                 tenantId: state.publicTenant.id,
-                customer: { name, address, phone: "" },
-                items: state.cart.map(i => ({ name: i.name, price: i.price, quantity: i.quantity, obs: i.obs })),
+                customer: { 
+                    name: name.trim(), 
+                    phone: phone.trim(),
+                    address: address.trim()
+                },
+                observations: observations.trim(),
+                items: state.cart.map(i => ({ 
+                    productId: i.product.id, 
+                    name: i.product.name, 
+                    price: i.product.price, 
+                    quantity: i.quantity 
+                })),
                 total: total,
                 status: 'novo',
                 createdAt: Date.now()
             };
 
             try {
-                const docRef = doc(collection(db, collections.orders));
-                await setDoc(docRef, orderData);
-
-                let msg = `*NOVO PEDIDO - ${state.publicTenant.name}*\n\n`;
-                msg += `*Cliente:* ${name}\n`;
-                msg += `*Endereço:* ${address}\n\n`;
-                msg += `*Itens do Pedido:*\n`;
-                state.cart.forEach(i => {
-                    msg += `• ${i.quantity}x ${i.name} - ${(i.price * i.quantity).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}\n`;
-                    if(i.obs) msg += `  _Obs: ${i.obs}_\n`;
-                });
-                msg += `\n*Total: ${total.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}*`;
-
+                await setDoc(doc(collection(db, collections.orders)), order);
                 state.cart = [];
                 closeModal();
-                renderPublicMenu(document.getElementById('app'));
-                showToast("Pedido enviado com sucesso!");
-
-                if (state.publicTenant.phone) {
-                    const phone = state.publicTenant.phone.replace(/\D/g, '');
-                    window.open(`https://wa.me/55${phone}?text=${encodeURIComponent(msg)}`, '_blank');
-                }
-
-            } catch (err) {
-                showToast("Erro ao enviar pedido.", "error");
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fab fa-whatsapp text-xl"></i> Enviar Pedido';
+                
+                openModal(`
+                    <div class="fixed inset-0 z-50 flex items-center justify-center p-4 overlay fade-in">
+                        <div class="bg-white rounded-3xl shadow-2xl p-8 text-center max-w-sm w-full">
+                            <div class="w-20 h-20 bg-green-100 text-green-500 rounded-full flex items-center justify-center text-4xl mx-auto mb-6"><i class="fas fa-check"></i></div>
+                            <h2 class="text-2xl font-black text-gray-800 mb-2">Pedido Enviado!</h2>
+                            <p class="text-gray-500 mb-6">O restaurante já recebeu o seu pedido. Em breve ele começará a ser preparado.</p>
+                            <button onclick="closeModal(); handleRoute();" class="w-full bg-gray-900 text-white font-bold py-3.5 rounded-xl">Fechar</button>
+                        </div>
+                    </div>
+                `);
+            } catch(err) {
+                showToast("Erro ao processar pedido: " + err.message, "error");
+                btn.disabled = false; btn.innerHTML = 'Finalizar Pedido';
             }
         }
 
-        initializeAppAuth();
-        setupRouter();
+        window.onload = () => {
+            setupRouter();
+            initializeAppAuth();
+        };
     </script>
 </body>
 </html>
-```eof
