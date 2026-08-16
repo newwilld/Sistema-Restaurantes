@@ -66,11 +66,13 @@
     </div>
     
     <div id="modal-container"></div>
-    <div id="toast-container" class="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"></div>
+    <div id="toast-container" class="fixed top-4 right-4 z-[999] flex flex-col gap-2 pointer-events-none"></div>
+    <!-- Container para as notificações fixas de pedidos -->
+    <div id="persistent-notifs" class="fixed top-4 left-4 sm:left-auto sm:right-4 z-[900] flex flex-col gap-3"></div>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile, updatePassword, updateEmail } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, signInAnonymously, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile, updatePassword, updateEmail, EmailAuthProvider, reauthenticateWithCredential } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, getDoc, setDoc, addDoc, collection, getDocs, updateDoc, deleteDoc, onSnapshot, query, where, serverTimestamp, writeBatch } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         const firebaseConfig = {
@@ -86,9 +88,6 @@
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
         const auth = getAuth(app);
-
-        const secondaryApp = initializeApp(firebaseConfig, "SecondaryApp");
-        const secondaryAuth = getAuth(secondaryApp);
 
         const collections = {
             tenants: "saas_tenants",
@@ -123,6 +122,12 @@
             return Math.random().toString(36).substring(2, 15);
         }
 
+        window.formatDateBR = function(timestamp) {
+            if(!timestamp) return '';
+            const date = new Date(timestamp);
+            return date.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+        }
+
         window.showToast = function(message, type = 'success') {
             const toast = document.createElement('div');
             const bgColor = type === 'success' ? 'bg-gray-900' : 'bg-red-500';
@@ -144,6 +149,40 @@
 
         window.closeModal = function() {
             document.getElementById('modal-container').innerHTML = '';
+        }
+
+        // --- SISTEMA DE NOTIFICAÇÃO FIXA DE NOVO PEDIDO ---
+        window.closePersistentNotif = function(btnElement) {
+            const notif = btnElement.closest('.persistent-notif-card');
+            if(notif) {
+                notif.style.opacity = '0';
+                setTimeout(() => notif.remove(), 300);
+            }
+        }
+
+        function showOrderNotification(order) {
+            const container = document.getElementById('persistent-notifs');
+            if(!container) return;
+            const total = (order.total || 0).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'});
+            const itemsResumo = order.items.map(i => `${i.quantity}x ${i.name}`).join(', ');
+            
+            const notif = document.createElement('div');
+            notif.className = `persistent-notif-card bg-yellow-400 text-yellow-900 p-4 rounded-xl shadow-2xl border-2 border-yellow-500 fade-in w-72 relative`;
+            notif.innerHTML = `
+                <button onclick="closePersistentNotif(this)" class="absolute top-2 right-2 text-yellow-800 hover:text-black font-black text-xl leading-none">&times;</button>
+                <div class="flex items-center gap-2 font-black mb-2 border-b border-yellow-500 pb-1">
+                    <i class="fas fa-bell animate-bounce"></i> NOVO PEDIDO!
+                </div>
+                <div class="text-sm font-bold truncate">Cliente: ${order.customer?.name || 'Sem Nome'}</div>
+                <div class="text-xs mt-1 line-clamp-2">Itens: ${itemsResumo}</div>
+                <div class="text-sm font-black mt-2">Valor: ${total}</div>
+            `;
+            container.appendChild(notif);
+            // Tocar som (opcional, requer interação prévia do usuário)
+            try {
+                const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+                audio.play().catch(e => console.log('Som bloqueado pelo navegador'));
+            } catch(e){}
         }
 
         function setupRouter() {
@@ -224,13 +263,6 @@
                         } catch (e) {
                             console.error("Erro ao carregar perfil da loja:", e);
                         }
-                    } else {
-                        try {
-                            await loadSuperAdminNotifications();
-                        } catch (err) {
-                            console.warn("Aviso: Não foi possível carregar notificações do admin:", err);
-                            state.superAdminNotifications = [];
-                        }
                     }
                 } else {
                     state.currentTenant = null;
@@ -239,78 +271,16 @@
                 
                 if (!state.isAppLoaded) {
                     state.isAppLoaded = true;
-                    setupRouter(); // Only start router after auth is verified
+                    setupRouter(); 
                 } else {
                     handleRoute();
                 }
             });
         }
         
-        // Starts the application
         window.onload = function() {
             initializeAppAuth();
         };
-
-        window.unsubSuperAdminNotifs = null;
-        window.unsubSuperAdminTenantDeletions = null;
-
-        function refreshSuperAdminContent() {
-            if (window.location.hash.startsWith('#/superadmin') && document.getElementById('superadmin-content')) {
-                const route = window.location.hash.split('/')[2] || 'dashboard';
-                document.getElementById('superadmin-content').innerHTML = getSuperAdminContent(route);
-                
-                const unreadCount = state.superAdminNotifications.filter(n => !n.read).length;
-                
-                const badgeHTML = unreadCount > 0 ? `<span class="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full ring-2 ring-white"></span>` : '';
-                const headerBell = document.querySelector('header a[title="Notificações"]');
-                if (headerBell) headerBell.innerHTML = `<i class="fas fa-bell text-lg"></i>${badgeHTML}`;
-                
-                const sidebarBadgeHTML = unreadCount > 0 ? `<span class="bg-red-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full animate-pulse">${unreadCount}</span>` : '';
-                const sidebarLink = document.querySelector('aside nav a[href="#/superadmin/notificacoes"]');
-                if (sidebarLink) sidebarLink.innerHTML = `<div class="flex items-center gap-3"><i class="fas fa-bell w-5"></i> Notificações</div>${sidebarBadgeHTML}`;
-            }
-        }
-
-        async function loadSuperAdminNotifications() {
-            if (!state.isSuperAdmin || !state.currentUser) {
-                state.superAdminNotifications = [];
-                return;
-            }
-
-            return new Promise((resolve) => {
-                if (window.unsubSuperAdminNotifs) {
-                    resolve();
-                    return;
-                }
-                try {
-                    const nq = query(collection(db, collections.adminNotifications), where("type", "==", "admin_master"));
-                    window.unsubSuperAdminNotifs = onSnapshot(nq, (nsnap) => {
-                        const oldCount = state.superAdminNotifications.length;
-                        state.superAdminNotifications = nsnap.docs.map(d => ({ id: d.id, ...d.data() }))
-                            .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-                        
-                        const newCount = state.superAdminNotifications.length;
-                        
-                        refreshSuperAdminContent();
-                        
-                        if (newCount > oldCount) {
-                            showToast('Nova notificação recebida!', 'success');
-                        }
-                        resolve();
-                    }, (err) => {
-                        console.warn("Erro ao carregar notificações do admin:", err);
-                        window.unsubSuperAdminNotifs = null;
-                        state.superAdminNotifications = [];
-                        resolve();
-                    });
-                } catch (err) {
-                    console.warn("Erro crítico no listener de notificações:", err);
-                    window.unsubSuperAdminNotifs = null;
-                    state.superAdminNotifications = [];
-                    resolve();
-                }
-            });
-        }
 
         window.renderLanding = function(container) {
             container.innerHTML = `
@@ -329,42 +299,15 @@
                     </header>
 
                     <main class="flex-grow flex flex-col items-center justify-center text-center px-4 py-20 bg-gradient-to-b from-gray-50 to-white">
-                        <div class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-brand-50 text-brand-600 font-bold text-sm mb-8 border border-brand-100">
-                            <span class="relative flex h-2.5 w-2.5">
-                              <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-brand-400 opacity-75"></span>
-                              <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-brand-500"></span>
-                            </span>
-                            Plataforma SaaS Completa
-                        </div>
                         <h1 class="text-5xl md:text-7xl font-black text-gray-900 tracking-tight mb-6 max-w-4xl leading-tight">
                             O sistema de vendas do seu <span class="text-transparent bg-clip-text bg-gradient-to-r from-brand-500 to-orange-500">Restaurante</span>
                         </h1>
-                        <p class="text-xl text-gray-500 mb-10 max-w-2xl font-medium">Cardápio digital, gestão de pedidos e recebimentos via PIX e Cartão. Tudo em uma única plataforma profissional.</p>
+                        <p class="text-xl text-gray-500 mb-10 max-w-2xl font-medium">Cardápio digital e gestão de pedidos e status em tempo real.</p>
                         
                         <div class="flex flex-col sm:flex-row gap-4">
                             <button onclick="window.location.hash='#/login?type=cliente&register=true'" class="bg-brand-500 text-white px-8 py-4 rounded-xl font-bold text-lg hover:bg-brand-600 transition shadow-xl shadow-brand-500/30 flex items-center justify-center gap-2">
                                 Criar minha Loja Agora <i class="fas fa-arrow-right"></i>
                             </button>
-                        </div>
-
-                        <div class="mt-20 w-full max-w-5xl">
-                            <div class="grid grid-cols-1 md:grid-cols-3 gap-8 text-left">
-                                <div class="bg-white p-8 rounded-2xl shadow-sm border border-gray-100">
-                                    <div class="w-12 h-12 bg-red-50 text-brand-500 rounded-xl flex items-center justify-center text-xl mb-6"><i class="fas fa-hamburger"></i></div>
-                                    <h3 class="text-xl font-bold mb-3">Cardápio Digital Lindo</h3>
-                                    <p class="text-gray-500 text-sm leading-relaxed">Mostre seus produtos com fotos incríveis, variações e adicionais. Seus clientes vão comprar com os olhos.</p>
-                                </div>
-                                <div class="bg-white p-8 rounded-2xl shadow-sm border border-gray-100">
-                                    <div class="w-12 h-12 bg-green-50 text-green-500 rounded-xl flex items-center justify-center text-xl mb-6"><i class="fas fa-motorcycle"></i></div>
-                                    <h3 class="text-xl font-bold mb-3">Gestão de Pedidos</h3>
-                                    <p class="text-gray-500 text-sm leading-relaxed">Receba os pedidos direto no painel com alertas sonoros. Acompanhe do preparo até a entrega.</p>
-                                </div>
-                                <div class="bg-white p-8 rounded-2xl shadow-sm border border-gray-100">
-                                    <div class="w-12 h-12 bg-blue-50 text-blue-500 rounded-xl flex items-center justify-center text-xl mb-6"><i class="fas fa-qrcode"></i></div>
-                                    <h3 class="text-xl font-bold mb-3">Pagamento Facilitado</h3>
-                                    <p class="text-gray-500 text-sm leading-relaxed">Integração nativa para pagamentos. Dinheiro direto na sua conta sem taxas abusivas.</p>
-                                </div>
-                            </div>
                         </div>
                     </main>
                 </div>
@@ -386,11 +329,7 @@
                     <div class="bg-white p-8 sm:p-12 rounded-3xl shadow-2xl w-full max-w-md border border-gray-100 relative overflow-hidden">
                         <div class="absolute top-0 left-0 w-full h-2 bg-gradient-to-r ${isAdmin ? 'from-purple-600 to-blue-600' : 'from-brand-500 to-orange-500'}"></div>
                         <div class="text-center mb-8">
-                            <div class="inline-flex items-center justify-center w-16 h-16 rounded-2xl ${isAdmin ? 'bg-purple-50 text-purple-600' : 'bg-red-50 text-brand-600'} mb-4 shadow-inner">
-                                <i class="fas ${isAdmin ? 'fa-shield-alt' : 'fa-store'} text-2xl"></i>
-                            </div>
                             <h2 class="text-2xl font-bold text-gray-800">${isAdmin ? 'Acesso Administrativo' : (isRegister ? 'Crie seu Restaurante' : 'Painel do Restaurante')}</h2>
-                            <p class="text-gray-500 text-sm mt-1">${isAdmin ? 'Gestão da Plataforma WA Vendas.' : (isRegister ? 'Inicie seu teste gratuito e monte seu cardápio.' : 'Gerencie suas vendas e cardápio.')}</p>
                         </div>
 
                         <div class="flex p-1 bg-gray-100 rounded-xl mb-8">
@@ -413,30 +352,18 @@
                                 </div>
                                 <div>
                                     <label class="block text-sm font-bold text-gray-700 mb-1">WhatsApp</label>
-                                    <div class="relative">
-                                        <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-gray-400">
-                                            <i class="fab fa-whatsapp"></i>
-                                        </div>
-                                        <input type="tel" id="restaurant-phone" placeholder="(11) 99999-9999" class="w-full pl-11 pr-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition bg-gray-50 focus:bg-white">
-                                    </div>
-                                    <p class="text-xs text-gray-400 mt-1">Número para contato dos clientes</p>
+                                    <input type="tel" id="restaurant-phone" placeholder="(11) 99999-9999" class="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition bg-gray-50 focus:bg-white">
                                 </div>
                             ` : ''}
                             
                             <div>
                                 <label class="block text-sm font-bold text-gray-700 mb-1">E-mail</label>
-                                <div class="relative">
-                                    <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-gray-400"><i class="fas fa-envelope"></i></div>
-                                    <input type="email" id="email" required placeholder="seu@email.com" class="w-full pl-11 pr-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-brand-500 outline-none transition bg-gray-50 focus:bg-white">
-                                </div>
+                                <input type="email" id="email" required placeholder="seu@email.com" class="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-brand-500 outline-none transition bg-gray-50 focus:bg-white">
                             </div>
                             
                             <div>
                                 <label class="block text-sm font-bold text-gray-700 mb-1">Senha</label>
-                                <div class="relative">
-                                    <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-gray-400"><i class="fas fa-lock"></i></div>
-                                    <input type="password" id="password" required placeholder="••••••••" class="w-full pl-11 pr-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-brand-500 outline-none transition bg-gray-50 focus:bg-white">
-                                </div>
+                                <input type="password" id="password" required placeholder="••••••••" class="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-brand-500 outline-none transition bg-gray-50 focus:bg-white">
                             </div>
 
                             <button type="submit" id="auth-btn" class="w-full ${isAdmin ? 'bg-purple-600 hover:bg-purple-700 shadow-purple-500/30' : 'bg-brand-500 hover:bg-brand-600 shadow-brand-500/30'} text-white font-bold py-3.5 rounded-xl transition shadow-lg flex justify-center items-center mt-2">
@@ -451,16 +378,13 @@
                                 `Ainda não é parceiro? <a href="javascript:void(0)" onclick="renderAuthUI(document.getElementById('app'), true)" class="text-brand-600 hover:underline">Cadastre-se</a>`
                             }
                         </div>
-                        ` : `
-                        <div class="mt-6 text-center text-xs text-gray-400">
-                            Acesso restrito à equipe administrativa WA Vendas.
-                        </div>
-                        `}
+                        ` : ''}
                     </div>
                 </div>
             `;
         }
 
+        // OTIMIZADO: Entrada rápida sem necessitar F5
         window.handleAuthSubmit = async function(event, isRegister, isAdmin) {
             event.preventDefault();
             const btn = document.getElementById('auth-btn');
@@ -487,14 +411,11 @@
                         slug: slug,
                         phone: phone,
                         email: email,
-                        password: password,
                         status: 'active',
                         plan: 'trial',
                         createdAt: serverTimestamp(),
                         settings: {
                             open: true,
-                            minOrder: 0,
-                            primaryColor: '#ef4444',
                             coverImage: '',
                             profileImage: ''
                         }
@@ -502,28 +423,15 @@
 
                     await setDoc(doc(db, collections.tenants, userCreds.user.uid), tenantData);
 
-                    try {
-                        await createAdminNotification({
-                            type: 'admin_master',
-                            title: `Novo Cadastro @${name}`,
-                            message: `${name} cadastrou-se na plataforma`,
-                            customerName: name,
-                            customerEmail: email,
-                            action: 'novo_cliente'
-                        });
-                    } catch (notifErr) {
-                        console.warn("Aviso: Não foi possível criar notificação para admin:", notifErr);
-                    }
-
+                    // Forçar atualização do estado e rota instantaneamente
                     state.currentUser = userCreds.user;
                     state.currentTenant = { id: userCreds.user.uid, ...tenantData };
                     state.isSuperAdmin = false;
+                    state.isAppLoaded = true;
 
                     showToast('Restaurante criado com sucesso! Bem-vindo(a).');
-                    
-                    // Force Instant Routing Without Refresh (Optimized)
-                    window.location.hash = ''; 
-                    setTimeout(() => { window.location.hash = '#/admin'; }, 50);
+                    window.location.hash = '#/admin';
+                    handleRoute();
 
                 } else {
                     const userCreds = await signInWithEmailAndPassword(auth, email, password);
@@ -539,22 +447,13 @@
                         const docSnap = await getDoc(docRef);
                         if (docSnap.exists()) {
                             state.currentTenant = { id: docSnap.id, ...docSnap.data() };
-                        } else {
-                            state.currentTenant = null;
-                        }
-                    } else {
-                        try {
-                            await loadSuperAdminNotifications();
-                        } catch (err) {
-                            console.warn("Aviso: Notificações do admin não carregadas:", err);
                         }
                     }
 
+                    state.isAppLoaded = true;
                     showToast('Acesso liberado.');
-                    
-                    // Force Instant Routing Without Refresh (Optimized)
-                    window.location.hash = ''; 
-                    setTimeout(() => { window.location.hash = state.isSuperAdmin ? '#/superadmin' : '#/admin'; }, 50);
+                    window.location.hash = state.isSuperAdmin ? '#/superadmin' : '#/admin';
+                    handleRoute();
                 }
             } catch (error) {
                 console.error(error);
@@ -567,330 +466,55 @@
             }
         }
 
-        async function createAdminNotification(notificationData) {
-            const notifObj = {
-                id: generateId(),
-                ...notificationData,
-                createdAt: Date.now(),
-                read: false
-            };
-
-            if (state.isSuperAdmin) {
-                state.superAdminNotifications.unshift(notifObj);
-                refreshSuperAdminContent();
-            }
-
-            try {
-                const notifRef = doc(collection(db, collections.adminNotifications));
-                await setDoc(notifRef, {
-                    ...notificationData,
-                    createdAt: Date.now(),
-                    read: false
-                });
-                notifObj.id = notifRef.id;
-            } catch (err) {
-                console.warn("Erro ao salvar notificação no Firestore:", err);
-            }
-        }
-
         window.doLogout = async function() {
             await signOut(auth);
             state.currentUser = null;
             state.currentTenant = null;
             state.isSuperAdmin = false;
             
-            if (window.unsubSuperAdminTenants) { window.unsubSuperAdminTenants(); window.unsubSuperAdminTenants = null; }
-            if (window.unsubSuperAdminTenantDeletions) { window.unsubSuperAdminTenantDeletions(); window.unsubSuperAdminTenantDeletions = null; }
-            if (window.unsubSuperAdminNotifs) { window.unsubSuperAdminNotifs(); window.unsubSuperAdminNotifs = null; }
+            if (window.unsubAdminOrders) { window.unsubAdminOrders(); window.unsubAdminOrders = null; }
+            if (window.unsubPublicTenant) { window.unsubPublicTenant(); window.unsubPublicTenant = null; }
             
             window.location.hash = '#/';
         }
 
-        window.unsubSuperAdminTenants = null;
-
-        async function cleanupTenantData(tenantId) {
-            console.log("Limpando dados do tenant removido:", tenantId);
-            try {
-                const productsQuery = query(collection(db, collections.products), where("tenantId", "==", tenantId));
-                const productsSnap = await getDocs(productsQuery);
-                const productsBatch = writeBatch(db);
-                productsSnap.docs.forEach(doc => productsBatch.delete(doc.ref));
-                
-                const ordersQuery = query(collection(db, collections.orders), where("tenantId", "==", tenantId));
-                const ordersSnap = await getDocs(ordersQuery);
-                const ordersBatch = writeBatch(db);
-                ordersSnap.docs.forEach(doc => ordersBatch.delete(doc.ref));
-                
-                const notifsQuery = query(collection(db, collections.notifications), where("tenantId", "==", tenantId));
-                const notifsSnap = await getDocs(notifsQuery);
-                const notifsBatch = writeBatch(db);
-                notifsSnap.docs.forEach(doc => notifsBatch.delete(doc.ref));
-                
-                await Promise.all([
-                    productsSnap.docs.length > 0 ? productsBatch.commit() : Promise.resolve(),
-                    ordersSnap.docs.length > 0 ? ordersBatch.commit() : Promise.resolve(),
-                    notifsSnap.docs.length > 0 ? notifsBatch.commit() : Promise.resolve()
-                ]);
-                
-                state.superAdminTenants = state.superAdminTenants.filter(t => t.id !== tenantId);
-            } catch (err) {
-                console.error("Erro ao limpar dados do tenant:", err);
-            }
-        }
-
-        async function loadSuperAdminData() {
-            if (!state.isSuperAdmin) return;
-            
-            const tenantsPromise = new Promise((resolve) => {
-                if (window.unsubSuperAdminTenants) { resolve(); return; }
-                window.unsubSuperAdminTenants = onSnapshot(collection(db, collections.tenants), (snap) => {
-                    state.superAdminTenants = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-                    if (window.location.hash.startsWith('#/superadmin') && document.getElementById('superadmin-content')) {
-                        const route = window.location.hash.split('/')[2] || 'dashboard';
-                        document.getElementById('superadmin-content').innerHTML = getSuperAdminContent(route);
-                    }
-                    resolve();
-                }, (err) => { resolve(); });
-            });
-
-            const deletionsPromise = new Promise((resolve) => {
-                if (window.unsubSuperAdminTenantDeletions) { resolve(); return; }
-                window.unsubSuperAdminTenantDeletions = onSnapshot(collection(db, collections.tenants), (snap) => {
-                    const currentIds = new Set(snap.docs.map(d => d.id));
-                    const existingIds = new Set(state.superAdminTenants.map(t => t.id));
-                    const removedIds = [...existingIds].filter(id => !currentIds.has(id));
-                    
-                    if (removedIds.length > 0) {
-                        state.superAdminTenants = state.superAdminTenants.filter(t => !removedIds.includes(t.id));
-                        removedIds.forEach(async (tenantId) => await cleanupTenantData(tenantId));
-                        if (window.location.hash.startsWith('#/superadmin') && document.getElementById('superadmin-content')) {
-                            const route = window.location.hash.split('/')[2] || 'dashboard';
-                            document.getElementById('superadmin-content').innerHTML = getSuperAdminContent(route);
-                        }
-                    }
-                    resolve();
-                }, (err) => { resolve(); });
-            });
-
-            await Promise.all([tenantsPromise, deletionsPromise]);
-            
-            try { await loadSuperAdminNotifications(); } catch (err) { }
-            await checkPlanExpirations(); 
-            
-            const contentDiv = document.getElementById('superadmin-content');
-            if (contentDiv) {
-                contentDiv.innerHTML = getSuperAdminContent(window.location.hash.split('/')[2] || 'dashboard');
-            }
-        }
-
-        async function checkPlanExpirations() {
-            if (!state.isSuperAdmin) return;
-            const batch = writeBatch(db);
-            let hasUpdates = false;
-
-            for (let t of state.superAdminTenants) {
-                if (!t.renewalDate || t.status === 'canceled') continue;
-                
-                const today = new Date(); today.setHours(0,0,0,0);
-                const renewalParts = t.renewalDate.split('-');
-                const renewal = new Date(renewalParts[0], renewalParts[1] - 1, renewalParts[2]); 
-                
-                const diffTime = renewal - today;
-                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                
-                let notifType = null; let msg = ''; let updateFields = {};
-
-                if (diffDays === 5 && t.lastNotif !== '5d') { notifType = '5d'; msg = `O plano de @${t.name} vai vencer em 5 dias`; }
-                else if (diffDays === 3 && t.lastNotif !== '3d') { notifType = '3d'; msg = `O plano de @${t.name} vai vencer em 3 dias`; }
-                else if (diffDays === 0 && t.lastNotif !== '0d') { notifType = '0d'; msg = `O plano de @${t.name} vai vencer hoje`; }
-                else if (diffDays === -3 && t.lastNotif !== '-3d') { notifType = '-3d'; msg = `@${t.name} venceu a 3 dias após 5 dias será congelado`; }
-                else if (diffDays <= -5 && t.status !== 'suspended') {
-                    notifType = 'suspended_auto'; 
-                    msg = `O plano de @${t.name} venceu há 5 dias. Foi atualizado para Suspenso.`;
-                    updateFields.status = 'suspended';
-                }
-
-                if (notifType) {
-                    updateFields.lastNotif = notifType;
-                    const tRef = doc(db, collections.tenants, t.id);
-                    batch.update(tRef, updateFields);
-                    hasUpdates = true;
-                    
-                    t.status = updateFields.status || t.status;
-                    t.lastNotif = notifType;
-
-                    try {
-                        await createAdminNotification({
-                            type: 'admin_master', title: 'Aviso de Vencimento', message: msg,
-                            customerName: t.name, action: 'vencimento'
-                        });
-                    } catch (notifErr) {}
-                }
-            }
-            if (hasUpdates) await batch.commit();
-        }
-
-        window.renderSuperAdmin = function(container, hash) {
-            loadSuperAdminData();
-            const subRoute = hash.split('/')[2] || 'dashboard';
-            const unreadNotifications = state.superAdminNotifications.filter(n => !n.read).length;
-
-            container.innerHTML = `
-                <div class="flex h-screen bg-gray-50 fade-in text-sm">
-                    <aside class="w-64 bg-[#0f172a] text-white flex flex-col border-r border-gray-800">
-                        <div class="p-6">
-                            <div class="font-black text-xl flex items-center gap-2 mb-1"><i class="fas fa-shield-alt text-purple-500"></i> WA Admin</div>
-                            <div class="text-xs text-gray-400 uppercase tracking-widest font-bold">Plataforma SaaS</div>
-                        </div>
-                        <nav class="flex-grow px-4 space-y-1 mt-4">
-                            <a href="#/superadmin/dashboard" class="flex items-center gap-3 px-4 py-3 rounded-xl transition ${subRoute === 'dashboard' ? 'bg-purple-600 text-white font-bold' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-chart-pie w-5"></i> Dashboard</a>
-                            <a href="#/superadmin/restaurantes" class="flex items-center gap-3 px-4 py-3 rounded-xl transition ${subRoute === 'restaurantes' ? 'bg-purple-600 text-white font-bold' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-store w-5"></i> Lojistas</a>
-                            <a href="#/superadmin/notificacoes" class="flex items-center justify-between gap-3 px-4 py-3 rounded-xl transition ${subRoute === 'notificacoes' ? 'bg-purple-600 text-white font-bold' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}">
-                                <div class="flex items-center gap-3"><i class="fas fa-bell w-5"></i> Notificações</div>
-                                ${unreadNotifications > 0 ? `<span class="bg-red-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full animate-pulse">${unreadNotifications}</span>` : ''}
-                            </a>
-                        </nav>
-                        <div class="p-4"><button onclick="doLogout()" class="w-full py-3 text-red-400 hover:bg-red-500/10 rounded-xl font-bold"><i class="fas fa-power-off"></i> Sair</button></div>
-                    </aside>
-                    <main class="flex-grow flex flex-col overflow-hidden">
-                        <header class="h-16 bg-white border-b px-8 flex items-center justify-between shrink-0 shadow-sm z-10">
-                            <h2 class="text-lg font-bold text-gray-800">
-                                <i class="fas ${subRoute === 'dashboard' ? 'fa-chart-pie' : (subRoute === 'restaurantes' ? 'fa-store' : 'fa-bell')} text-purple-600 mr-2"></i> 
-                                ${subRoute === 'dashboard' ? 'Visão Geral' : (subRoute === 'restaurantes' ? 'Gestão de Lojistas' : 'Notificações')}
-                            </h2>
-                        </header>
-                        <div class="flex-grow p-8 overflow-y-auto" id="superadmin-content">
-                            <div class="flex justify-center h-full items-center"><div class="loader w-8 h-8 border-4 border-gray-200 border-t-purple-600"></div></div>
-                        </div>
-                    </main>
-                </div>
-            `;
-        }
-
-        function getSuperAdminContent(route) {
-            if (route === 'restaurantes') return renderSuperAdminRestaurants();
-            if (route === 'notificacoes') return renderSuperAdminNotifications();
-            
-            const totalRestaurantes = state.superAdminTenants.length;
-            const mrr = state.superAdminTenants.reduce((sum, t) => sum + (t.status !== 'canceled' && t.status !== 'suspended' ? (t.planPrice !== undefined ? Number(t.planPrice) : 99.90) : 0), 0);
-
-            return `
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                    <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm relative overflow-hidden group">
-                        <div class="absolute top-4 right-4 text-purple-100 group-hover:text-purple-200 transition text-5xl"><i class="fas fa-store"></i></div>
-                        <p class="text-gray-500 font-bold mb-1 uppercase text-xs tracking-wider">Restaurantes Cadastrados</p>
-                        <h3 class="text-3xl font-black text-gray-800">${totalRestaurantes}</h3>
-                    </div>
-                    <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm relative overflow-hidden group">
-                        <div class="absolute top-4 right-4 text-green-100 group-hover:text-green-200 transition text-5xl"><i class="fas fa-dollar-sign"></i></div>
-                        <p class="text-gray-500 font-bold mb-1 uppercase text-xs tracking-wider">MRR Ativo (Planos)</p>
-                        <h3 class="text-3xl font-black text-green-600">${mrr.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</h3>
-                    </div>
-                    <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm relative overflow-hidden group">
-                        <div class="absolute top-4 right-4 text-blue-100 group-hover:text-blue-200 transition text-5xl"><i class="fas fa-bell"></i></div>
-                        <p class="text-gray-500 font-bold mb-1 uppercase text-xs tracking-wider">Notificações Não Lidas</p>
-                        <h3 class="text-3xl font-black text-blue-600">${state.superAdminNotifications.filter(n => !n.read).length}</h3>
-                    </div>
-                </div>
-            `;
-        }
-
-        function renderSuperAdminNotifications() {
-            return `
-                <div class="mb-6 flex justify-between items-center">
-                    <div><h3 class="font-bold text-gray-800 text-lg">Todas as Notificações</h3></div>
-                    ${state.superAdminNotifications.length > 0 ? `<button onclick="markAllAdminNotificationsAsRead()" class="bg-purple-50 hover:bg-purple-100 text-purple-700 px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5"><i class="fas fa-check-double"></i> Marcar todas como lidas</button>` : ''}
-                </div>
-                <div class="space-y-4">
-                    ${state.superAdminNotifications.map(n => `
-                        <div class="bg-white rounded-2xl p-5 border ${n.read ? 'border-gray-100' : 'border-purple-200 bg-gradient-to-r from-purple-50/25 via-white to-white shadow-sm'} flex items-start gap-4">
-                            <div class="flex-grow min-w-0">
-                                <span class="font-black text-gray-900 text-sm">${n.title}</span>
-                                <p class="text-sm text-gray-700">${n.message}</p>
-                            </div>
-                        </div>
-                    `).join('')}
-                </div>
-            `;
-        }
-
-        window.markAllAdminNotificationsAsRead = async function() {
-            state.superAdminNotifications.forEach(n => n.read = true);
-            showToast('Todas as notificações foram marcadas como lidas.');
-            try {
-                const batch = writeBatch(db);
-                state.superAdminNotifications.forEach(n => {
-                    if (n.id) batch.update(doc(db, collections.adminNotifications, n.id), { read: true });
-                });
-                await batch.commit();
-            } catch (err) {}
-            loadSuperAdminData();
-        };
-
-        function renderSuperAdminRestaurants() {
-            return `
-                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-                    <div><h3 class="font-bold text-gray-800 text-lg">Gestão de Lojistas & Assinaturas</h3></div>
-                </div>
-                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-left">
-                            <thead class="bg-gray-50 text-xs uppercase text-gray-500 font-bold border-b border-gray-100">
-                                <tr>
-                                    <th class="p-4">Lojista</th>
-                                    <th class="p-4">Valor do Plano</th>
-                                    <th class="p-4">Status</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-gray-100 text-sm font-medium text-gray-700">
-                                ${state.superAdminTenants.map(t => `
-                                    <tr class="hover:bg-gray-50/80 transition">
-                                        <td class="p-4 font-bold">${t.name}</td>
-                                        <td class="p-4">${(t.planPrice !== undefined ? Number(t.planPrice) : 99.90).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</td>
-                                        <td class="p-4">${t.status}</td>
-                                    </tr>
-                                `).join('')}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            `;
-        }
+        window.unsubAdminOrders = null;
 
         async function loadAdminData() {
             if (!state.currentTenant) return;
+            
+            // Carrega produtos
             const q = query(collection(db, collections.products), where("tenantId", "==", state.currentTenant.id));
             const snap = await getDocs(q);
             state.adminProducts = snap.docs.map(d => ({ id: d.id, ...d.data() }))
                 .sort((a, b) => {
                     const orderA = a.order !== undefined ? a.order : 999999;
                     const orderB = b.order !== undefined ? b.order : 999999;
-                    if (orderA !== orderB) return orderA - orderB;
-                    return (a.createdAt || 0) - (b.createdAt || 0);
+                    return orderA - orderB;
                 });
             
+            // OTIMIZADO: Pedidos em Tempo Real via onSnapshot
+            if(window.unsubAdminOrders) window.unsubAdminOrders();
             const oq = query(collection(db, collections.orders), where("tenantId", "==", state.currentTenant.id));
-            const osnap = await getDocs(oq);
-            state.adminOrders = osnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (b.createdAt || 0) - (a.createdAt || 0));
-
-            let notifsFromCollection = [];
-            try {
-                const nq = query(collection(db, collections.notifications), where("tenantId", "==", state.currentTenant.id));
-                const nsnap = await getDocs(nq);
-                notifsFromCollection = nsnap.docs.map(d => ({ id: d.id, ...d.data() }));
-            } catch (err) {}
-
-            const notifsMap = new Map();
-            notifsFromCollection.forEach(n => notifsMap.set(n.id || (n.orderId + '_' + n.createdAt), n));
-            state.adminOrders.forEach(o => {
-                (o.history || []).forEach(h => {
-                    notifsMap.set(h.id || (o.id + '_' + h.createdAt), {
-                        ...h, tenantId: o.tenantId, orderId: o.id
-                    });
+            let isInitialLoad = true;
+            
+            window.unsubAdminOrders = onSnapshot(oq, (osnap) => {
+                osnap.docChanges().forEach(change => {
+                    if (change.type === 'added' && !isInitialLoad) {
+                        const orderData = change.doc.data();
+                        showOrderNotification(orderData);
+                    }
                 });
+                isInitialLoad = false;
+                
+                state.adminOrders = osnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (b.createdAt || 0) - (a.createdAt || 0));
+                
+                // Atualiza a interface se estiver na tela de pedidos
+                if(window.location.hash.startsWith('#/admin/pedidos')) {
+                    const contentDiv = document.getElementById('admin-content');
+                    if (contentDiv) contentDiv.innerHTML = getAdminContent('pedidos');
+                }
             });
-
-            state.adminNotifications = Array.from(notifsMap.values()).sort((a,b) => (b.createdAt || 0) - (a.createdAt || 0));
 
             const contentDiv = document.getElementById('admin-content');
             if (contentDiv) {
@@ -904,7 +528,6 @@
             loadAdminData();
             const subRoute = hash.split('/')[2] || 'dashboard';
             const tenant = state.currentTenant;
-            const unreadCount = state.adminNotifications.filter(n => !n.read).length;
 
             container.innerHTML = `
                 <div class="flex h-screen bg-gray-50 fade-in text-sm flex-col md:flex-row">
@@ -919,7 +542,7 @@
                         </div>
                         <nav class="flex-grow px-4 space-y-1 mt-4">
                             <a href="#/admin/dashboard" class="flex items-center gap-3 px-4 py-3 rounded-xl transition ${subRoute === 'dashboard' ? 'bg-brand-600 font-bold text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-chart-pie w-5"></i> Visão Geral</a>
-                            <a href="#/admin/pedidos" class="flex items-center gap-3 px-4 py-3 rounded-xl transition ${subRoute === 'pedidos' ? 'bg-brand-600 font-bold text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-receipt w-5"></i> Pedidos</a>
+                            <a href="#/admin/pedidos" class="flex items-center gap-3 px-4 py-3 rounded-xl transition ${subRoute === 'pedidos' ? 'bg-brand-600 font-bold text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-receipt w-5"></i> Gestão de Pedidos</a>
                             <a href="#/admin/cardapio" class="flex items-center gap-3 px-4 py-3 rounded-xl transition ${subRoute === 'cardapio' ? 'bg-brand-600 font-bold text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-utensils w-5"></i> Meu Cardápio</a>
                             <a href="#/admin/configuracoes" class="flex items-center gap-3 px-4 py-3 rounded-xl transition ${subRoute === 'configuracoes' ? 'bg-brand-600 font-bold text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}"><i class="fas fa-cog w-5"></i> Configurações</a>
                         </nav>
@@ -930,8 +553,8 @@
                     <main class="flex-grow flex flex-col overflow-hidden relative">
                         <header class="h-16 bg-white border-b px-8 flex items-center justify-between shrink-0 shadow-sm z-10">
                             <h2 class="text-lg font-bold text-gray-800 capitalize flex items-center gap-2">
-                                <i class="fas ${subRoute === 'pedidos' ? 'fa-receipt text-blue-500' : (subRoute === 'cardapio' ? 'fa-utensils text-brand-500' : 'fa-chart-pie text-green-500')}"></i> 
-                                ${subRoute === 'pedidos' ? 'Gestão de Pedidos' : (subRoute === 'cardapio' ? 'Meu Cardápio' : 'Visão Geral')}
+                                <i class="fas ${subRoute === 'pedidos' ? 'fa-receipt text-blue-500' : (subRoute === 'cardapio' ? 'fa-utensils text-brand-500' : (subRoute === 'configuracoes' ? 'fa-cog text-gray-500' : 'fa-chart-pie text-green-500'))}"></i> 
+                                ${subRoute === 'pedidos' ? 'Gestão de Pedidos' : (subRoute === 'cardapio' ? 'Meu Cardápio' : (subRoute === 'configuracoes' ? 'Configurações' : 'Visão Geral'))}
                             </h2>
                             <div class="flex items-center gap-3">
                                 <a href="#/cardapio/${tenant?.slug}" target="_blank" class="text-sm font-bold text-brand-600 bg-brand-50 px-4 py-1.5 rounded-full hover:bg-brand-100 transition flex items-center gap-1.5"><i class="fas fa-external-link-alt text-xs"></i> Ver Loja</a>
@@ -943,10 +566,6 @@
                     </main>
                 </div>
             `;
-            if (subRoute === 'cardapio' && state.adminProducts.length > 0) {
-                const contentDiv = document.getElementById('admin-content');
-                if (contentDiv) { contentDiv.innerHTML = getAdminContent('cardapio'); initAdminSortable(); }
-            }
         }
 
         function getAdminContent(route) {
@@ -981,12 +600,31 @@
                         <h3 class="font-black text-gray-800 text-xl mb-1 flex items-center gap-2">
                             <i class="fas fa-address-card text-brand-500"></i> Informações de Contato
                         </h3>
+                        <p class="text-sm text-gray-500 mb-4">Atualize o número de telefone/WhatsApp que seus clientes verão.</p>
                         <form onsubmit="saveTenantSettings(event)" class="space-y-4">
                             <div>
                                 <label class="block text-sm font-bold text-gray-700 mb-1">WhatsApp de Contato</label>
                                 <input type="text" id="cfg-phone" value="${t.phone || ''}" required placeholder="(11) 99999-9999" class="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:bg-white focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 transition font-medium">
                             </div>
-                            <button type="submit" id="btn-save-cfg" class="bg-gray-900 text-white font-bold py-3 px-6 rounded-xl hover:bg-black transition shadow-md w-full sm:w-auto">Salvar Contato</button>
+                            <button type="submit" id="btn-save-cfg" class="bg-gray-900 text-white font-bold py-3 px-6 rounded-xl hover:bg-black transition shadow-md w-full sm:w-auto">Atualizar Contato</button>
+                        </form>
+                    </div>
+
+                    <div class="bg-white p-6 md:p-8 rounded-3xl border border-gray-100 shadow-sm">
+                        <h3 class="font-black text-gray-800 text-xl mb-1 flex items-center gap-2">
+                            <i class="fas fa-lock text-brand-500"></i> Segurança (Trocar Senha)
+                        </h3>
+                        <p class="text-sm text-gray-500 mb-4">Altere sua senha de acesso ao painel. O administrador será notificado da alteração.</p>
+                        <form onsubmit="changeUserPassword(event)" class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-bold text-gray-700 mb-1">Senha Antiga</label>
+                                <input type="password" id="cfg-old-pass" required placeholder="Sua senha atual" class="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:bg-white focus:border-brand-500 transition">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-bold text-gray-700 mb-1">Nova Senha</label>
+                                <input type="password" id="cfg-new-pass" required placeholder="No mínimo 6 caracteres" class="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:bg-white focus:border-brand-500 transition">
+                            </div>
+                            <button type="submit" id="btn-change-pass" class="bg-brand-500 text-white font-bold py-3 px-6 rounded-xl hover:bg-brand-600 transition shadow-md w-full sm:w-auto shadow-brand-500/30">Atualizar Senha</button>
                         </form>
                     </div>
                 </div>
@@ -1002,11 +640,45 @@
                 await updateDoc(doc(db, collections.tenants, state.currentTenant.id), { phone: newPhone });
                 state.currentTenant.phone = newPhone;
                 showToast("Contato atualizado com sucesso!");
-                btn.disabled = false; btn.innerHTML = 'Salvar Contato';
+                btn.disabled = false; btn.innerHTML = 'Atualizar Contato';
             } catch(err) {
                 showToast("Erro ao atualizar: " + err.message, "error");
-                btn.disabled = false; btn.innerHTML = 'Salvar Contato';
+                btn.disabled = false; btn.innerHTML = 'Atualizar Contato';
             }
+        };
+
+        window.changeUserPassword = async function(e) {
+            e.preventDefault();
+            const btn = document.getElementById('btn-change-pass');
+            const oldPass = document.getElementById('cfg-old-pass').value;
+            const newPass = document.getElementById('cfg-new-pass').value;
+            
+            if(newPass.length < 6) {
+                showToast("A nova senha deve ter no mínimo 6 caracteres.", "error");
+                return;
+            }
+
+            btn.disabled = true; btn.innerHTML = 'Processando...';
+            
+            try {
+                const user = state.currentUser;
+                const credential = EmailAuthProvider.credential(user.email, oldPass);
+                // Reautenticar antes de trocar a senha
+                await reauthenticateWithCredential(user, credential);
+                // Atualizar
+                await updatePassword(user, newPass);
+                
+                showToast("Senha atualizada com sucesso!");
+                document.getElementById('cfg-old-pass').value = '';
+                document.getElementById('cfg-new-pass').value = '';
+            } catch(err) {
+                if(err.code === 'auth/invalid-credential') {
+                    showToast("Senha antiga incorreta.", "error");
+                } else {
+                    showToast("Erro ao atualizar senha.", "error");
+                }
+            }
+            btn.disabled = false; btn.innerHTML = 'Atualizar Senha';
         };
 
         window.toggleRestaurantStatus = async function() {
@@ -1035,12 +707,17 @@
             return `
                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
                     <h3 class="font-bold text-gray-800 text-lg">Configurações do Cardápio</h3>
-                    <div class="flex items-center gap-3 bg-white px-4 py-2 rounded-xl shadow-sm border border-gray-100">
-                        <span class="text-sm font-bold text-gray-700">Status do Restaurante:</span>
-                        <button onclick="toggleRestaurantStatus()" class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${isOpen ? 'bg-green-500' : 'bg-red-500'}">
-                            <span class="inline-block h-4 w-4 transform rounded-full bg-white transition ${isOpen ? 'translate-x-6' : 'translate-x-1'}"></span>
+                    <div class="flex flex-wrap items-center gap-3">
+                        <button onclick="openEditStoreDetails()" class="bg-gray-900 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-md hover:bg-black transition flex items-center gap-2">
+                            <i class="fas fa-edit"></i> Editar Loja (Nome, Link, Fotos)
                         </button>
-                        <span class="text-xs font-black uppercase ${isOpen ? 'text-green-600' : 'text-red-600'}">${isOpen ? 'Aberto' : 'Fechado'}</span>
+                        <div class="flex items-center gap-3 bg-white px-4 py-2 rounded-xl shadow-sm border border-gray-100">
+                            <span class="text-sm font-bold text-gray-700">Status do Restaurante:</span>
+                            <button onclick="toggleRestaurantStatus()" class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${isOpen ? 'bg-green-500' : 'bg-red-500'}">
+                                <span class="inline-block h-4 w-4 transform rounded-full bg-white transition ${isOpen ? 'translate-x-6' : 'translate-x-1'}"></span>
+                            </button>
+                            <span class="text-xs font-black uppercase ${isOpen ? 'text-green-600' : 'text-red-600'}">${isOpen ? 'Aberto' : 'Fechado'}</span>
+                        </div>
                     </div>
                 </div>
                 
@@ -1074,6 +751,88 @@
                     ${state.adminProducts.length === 0 ? `<div class="col-span-full p-12 text-center text-gray-400 font-medium border-2 border-dashed border-gray-200 rounded-2xl">Nenhum produto cadastrado ainda. Clique em Novo Produto para começar.</div>` : ''}
                 </div>
             `;
+        }
+
+        // --- BOTÕES ADICIONADOS: EDITAR LOJA ---
+        window.openEditStoreDetails = function() {
+            const t = state.currentTenant;
+            const html = `
+                <div class="fixed inset-0 z-50 flex items-center justify-center p-4 overlay fade-in">
+                    <div class="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+                        <div class="p-6 border-b flex justify-between items-center">
+                            <h3 class="font-bold text-gray-800 text-lg">Detalhes da Loja</h3>
+                            <button onclick="closeModal()" class="text-gray-400 hover:text-gray-800 text-xl leading-none">&times;</button>
+                        </div>
+                        <div class="p-6 overflow-y-auto">
+                            <form onsubmit="saveStoreDetails(event)" class="space-y-4">
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-700 mb-1">Nome do Restaurante</label>
+                                    <input type="text" id="edit-store-name" value="${t.name || ''}" required class="w-full px-4 py-2.5 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:border-brand-500">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-700 mb-1">Link do Cardápio (Slug)</label>
+                                    <div class="flex shadow-sm rounded-xl overflow-hidden border border-gray-300 focus-within:ring-2 focus-within:ring-brand-500 transition">
+                                        <span class="inline-flex items-center px-3 bg-gray-100 text-gray-500 text-sm font-mono border-r border-gray-200">wa.com/</span>
+                                        <input type="text" id="edit-store-slug" value="${t.slug || ''}" required class="flex-1 min-w-0 block w-full px-3 py-2.5 font-mono text-sm outline-none bg-gray-50 focus:bg-white" onkeyup="this.value = this.value.toLowerCase().replace(/[^a-z0-9-]/g, '')">
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-700 mb-1">URL Foto Perfil / Logo</label>
+                                    <input type="url" id="edit-store-logo" value="${t.settings?.profileImage || ''}" placeholder="https://..." class="w-full px-4 py-2.5 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:border-brand-500">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-700 mb-1">URL Foto Capa / Banner</label>
+                                    <input type="url" id="edit-store-cover" value="${t.settings?.coverImage || ''}" placeholder="https://..." class="w-full px-4 py-2.5 bg-gray-50 border border-gray-300 rounded-xl outline-none focus:border-brand-500">
+                                </div>
+                                <div class="mt-6 flex gap-3">
+                                    <button type="button" onclick="closeModal()" class="flex-1 py-3 rounded-xl bg-gray-100 text-gray-600 font-bold hover:bg-gray-200">Cancelar</button>
+                                    <button type="submit" id="btn-save-store" class="flex-1 py-3 rounded-xl bg-brand-500 text-white font-bold hover:bg-brand-600 shadow-lg shadow-brand-500/30">Salvar Alterações</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            `;
+            openModal(html);
+        }
+
+        window.saveStoreDetails = async function(e) {
+            e.preventDefault();
+            const btn = document.getElementById('btn-save-store');
+            btn.disabled = true; btn.innerHTML = 'Salvando...';
+
+            const name = document.getElementById('edit-store-name').value;
+            const slug = document.getElementById('edit-store-slug').value;
+            const logo = document.getElementById('edit-store-logo').value;
+            const cover = document.getElementById('edit-store-cover').value;
+
+            try {
+                await updateDoc(doc(db, collections.tenants, state.currentTenant.id), {
+                    name: name,
+                    slug: slug,
+                    'settings.profileImage': logo,
+                    'settings.coverImage': cover
+                });
+
+                state.currentTenant.name = name;
+                state.currentTenant.slug = slug;
+                if(!state.currentTenant.settings) state.currentTenant.settings = {};
+                state.currentTenant.settings.profileImage = logo;
+                state.currentTenant.settings.coverImage = cover;
+
+                showToast('Dados da loja atualizados com sucesso!');
+                closeModal();
+                
+                // Atualiza cabeçalho do menu admin
+                const contentDiv = document.getElementById('admin-content');
+                if (contentDiv) {
+                    contentDiv.innerHTML = getAdminContent('cardapio');
+                    initAdminSortable();
+                }
+            } catch(err) {
+                showToast('Erro ao atualizar: ' + err.message, 'error');
+                btn.disabled = false; btn.innerHTML = 'Salvar Alterações';
+            }
         }
 
         let sortableInstance = null;
@@ -1247,7 +1006,8 @@
             const getStatusBadge = (status) => {
                 switch(status) {
                     case 'novo': return `<span class="px-2.5 py-1 bg-blue-100 text-blue-700 rounded-lg text-xs font-bold border border-blue-200 uppercase">Novo</span>`;
-                    case 'preparando': return `<span class="px-2.5 py-1 bg-yellow-100 text-yellow-700 rounded-lg text-xs font-bold border border-yellow-200 uppercase">Preparando</span>`;
+                    case 'preparando': 
+                    case 'aceito': return `<span class="px-2.5 py-1 bg-yellow-100 text-yellow-700 rounded-lg text-xs font-bold border border-yellow-200 uppercase">Aceito / Preparando</span>`;
                     case 'entrega': return `<span class="px-2.5 py-1 bg-purple-100 text-purple-700 rounded-lg text-xs font-bold border border-purple-200 uppercase">Em Entrega</span>`;
                     case 'entregue': return `<span class="px-2.5 py-1 bg-green-100 text-green-700 rounded-lg text-xs font-bold border border-green-200 uppercase">Entregue</span>`;
                     case 'cancelado': 
@@ -1270,7 +1030,7 @@
                             </thead>
                             <tbody class="divide-y divide-gray-100 text-sm">
                                 ${state.adminOrders.map(o => `
-                                    <tr class="hover:bg-gray-50/80 transition group">
+                                    <tr class="hover:bg-gray-50/80 transition group cursor-pointer" onclick="openOrderDetailsModal('${o.id}')">
                                         <td class="p-4">
                                             <div class="font-bold text-gray-900">${o.customer?.name || 'Sem Nome'}</div>
                                             <span class="text-xs text-gray-400 font-mono">${o.customer?.phone || 'Sem telefone'}</span>
@@ -1281,8 +1041,8 @@
                                         </td>
                                         <td class="p-4">${getStatusBadge(o.status)}</td>
                                         <td class="p-4 text-right">
-                                            <button onclick="openOrderDetailsModal('${o.id}')" class="bg-gray-100 hover:bg-brand-500 hover:text-white text-gray-700 px-3.5 py-1.5 rounded-xl text-xs font-bold transition inline-flex items-center gap-1.5 shadow-sm">
-                                                <i class="fas fa-edit"></i> Editar Status
+                                            <button class="bg-gray-100 group-hover:bg-brand-500 group-hover:text-white text-gray-700 px-3.5 py-1.5 rounded-xl text-xs font-bold transition inline-flex items-center gap-1.5 shadow-sm">
+                                                <i class="fas fa-edit"></i> Editar Pedido
                                             </button>
                                         </td>
                                     </tr>
@@ -1295,9 +1055,14 @@
             `;
         }
 
+        // --- MODAL DETALHES & EDIÇÃO DO PEDIDO COMPLETAMENTE REVISADO ---
         window.openOrderDetailsModal = function(orderId) {
             const order = state.adminOrders.find(o => o.id === orderId);
             if (!order) return;
+
+            const t = state.currentTenant;
+            const restPhone = t.phone || '';
+            const wppLinkFalarComCliente = `https://wa.me/55${(order.customer?.phone || '').replace(/[^0-9]/g, '')}`;
 
             const html = `
                 <div class="fixed inset-0 z-50 flex items-center justify-center p-4 overlay fade-in">
@@ -1305,38 +1070,87 @@
                         <div class="p-6 border-b flex justify-between items-center bg-gray-50">
                             <div>
                                 <h3 class="font-bold text-gray-800 text-lg flex items-center gap-2">
-                                    <i class="fas fa-receipt text-brand-500"></i> Editar Status do Pedido
+                                    <i class="fas fa-receipt text-brand-500"></i> Detalhes & Edição do Pedido
                                 </h3>
-                                <p class="text-xs text-gray-400 font-mono mt-0.5">ID: #${order.id.substring(0,8)}</p>
+                                <p class="text-xs text-gray-500 font-medium mt-1">Realizado em: ${formatDateBR(order.createdAt)}</p>
                             </div>
-                            <button onclick="closeModal()" class="text-gray-400 hover:text-gray-800 text-2xl leading-none">&times;</button>
+                            <button onclick="closeModal()" class="text-gray-400 hover:text-gray-800 text-3xl leading-none">&times;</button>
                         </div>
                         
                         <div class="p-6 overflow-y-auto flex-grow space-y-5">
+                            
+                            <!-- Contato Dúvidas -->
+                            <div class="bg-blue-50 text-blue-800 text-xs p-3 rounded-xl border border-blue-100 flex justify-between items-center">
+                                <div>
+                                    <strong>WhatsApp do Restaurante (Contato para Dúvidas):</strong><br>
+                                    ${restPhone || 'Não configurado'}
+                                </div>
+                                <a href="${wppLinkFalarComCliente}" target="_blank" class="bg-[#25D366] text-white px-3 py-1.5 rounded-lg font-bold flex items-center gap-2 shadow-sm hover:bg-[#1DA851] transition">
+                                    <i class="fab fa-whatsapp"></i> Falar com Cliente
+                                </a>
+                            </div>
+
                             <form id="order-edit-form" onsubmit="saveOrderEdits(event, '${order.id}')" class="space-y-4">
-                                <div class="bg-brand-50/50 p-4 rounded-2xl border border-brand-100">
-                                    <h4 class="font-black text-xs uppercase tracking-wider text-brand-900 mb-3">Informações</h4>
-                                    <p class="text-sm font-bold text-gray-800">${order.customer?.name}</p>
-                                    <p class="text-xs text-gray-600 mb-2">${order.customer?.address}</p>
-                                    <div class="space-y-1 mb-2 border-t border-brand-200 pt-2">
-                                        ${order.items.map(i => `<p class="text-xs"><strong>${i.quantity}x</strong> ${i.name} - ${(i.price*i.quantity).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</p>`).join('')}
+                                
+                                <!-- Info Cliente Editável -->
+                                <div class="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm space-y-3">
+                                    <h4 class="font-black text-xs uppercase tracking-wider text-gray-500">Informações do Cliente (Editáveis)</h4>
+                                    <div>
+                                        <label class="block text-xs font-bold text-gray-700 mb-1">Nome do Cliente</label>
+                                        <input type="text" id="edit-order-c-name" value="${order.customer?.name || ''}" class="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg outline-none focus:border-brand-500 text-sm">
                                     </div>
-                                    <p class="text-sm font-black text-brand-600 border-t border-brand-200 pt-2">Total: ${(order.total || 0).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</p>
+                                    <div>
+                                        <label class="block text-xs font-bold text-gray-700 mb-1">Telefone / WhatsApp</label>
+                                        <input type="text" id="edit-order-c-phone" value="${order.customer?.phone || ''}" class="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg outline-none focus:border-brand-500 text-sm">
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-bold text-gray-700 mb-1">Endereço de Entrega</label>
+                                        <textarea id="edit-order-c-address" rows="2" class="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg outline-none focus:border-brand-500 text-sm resize-none">${order.customer?.address || ''}</textarea>
+                                    </div>
                                 </div>
 
+                                <!-- Itens e Total -->
+                                <div class="bg-gray-50 p-4 rounded-2xl border border-gray-200">
+                                    <h4 class="font-black text-xs uppercase tracking-wider text-gray-500 mb-3">Itens Pedidos & Informações</h4>
+                                    <div class="space-y-2 mb-3">
+                                        ${order.items.map(i => `
+                                            <div class="flex justify-between text-sm">
+                                                <span><strong>${i.quantity}x</strong> ${i.name}</span>
+                                                <span class="text-gray-600">${(i.price*i.quantity).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</span>
+                                            </div>
+                                            ${i.obs ? `<div class="text-xs text-red-500 italic pl-5">- Obs: ${i.obs}</div>` : ''}
+                                        `).join('')}
+                                    </div>
+                                    
+                                    ${order.observations ? `
+                                        <div class="bg-yellow-50 p-2 rounded-lg border border-yellow-200 mb-3">
+                                            <span class="text-xs font-bold text-yellow-800">Observações do Pedido pelo Cliente (obs):</span>
+                                            <p class="text-xs text-yellow-900 italic mt-1">${order.observations}</p>
+                                        </div>
+                                    ` : ''}
+
+                                    <div class="flex justify-between items-center border-t border-gray-200 pt-3">
+                                        <span class="font-bold text-gray-700">Valor Total (R$)</span>
+                                        <span class="font-black text-brand-600 text-lg">${(order.total || 0).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</span>
+                                    </div>
+                                </div>
+
+                                <!-- Status -->
                                 <div>
-                                    <label class="block text-xs font-bold text-gray-700 mb-1">Status do Pedido (Atualiza em tempo real para o cliente)</label>
-                                    <select id="modal-order-status" class="w-full px-3.5 py-3 bg-white border border-gray-300 rounded-xl outline-none focus:border-brand-500 text-sm font-bold">
+                                    <label class="block text-xs font-bold text-gray-700 mb-1">Status do Pedido:</label>
+                                    <select id="modal-order-status" class="w-full px-3.5 py-3 bg-white border border-gray-300 rounded-xl outline-none focus:border-brand-500 text-sm font-bold shadow-sm">
                                         <option value="novo" ${order.status === 'novo' ? 'selected' : ''}>Novo / Analisando</option>
-                                        <option value="preparando" ${order.status === 'preparando' || order.status === 'aceito' ? 'selected' : ''}>Pedido Aceito / Preparando</option>
+                                        <option value="aceito" ${order.status === 'aceito' || order.status === 'preparando' ? 'selected' : ''}>Pedido Aceito / Preparando</option>
                                         <option value="entrega" ${order.status === 'entrega' ? 'selected' : ''}>Saiu para Entrega</option>
                                         <option value="entregue" ${order.status === 'entregue' ? 'selected' : ''}>Entregue / Concluído</option>
-                                        <option value="recusado" ${order.status === 'recusado' ? 'selected' : ''}>Recusado (Indisponível)</option>
+                                        <option value="recusado" ${order.status === 'recusado' || order.status === 'cancelado' ? 'selected' : ''}>Recusado (Indisponível)</option>
                                     </select>
                                 </div>
+
+                                <!-- Botões -->
                                 <div class="mt-6 flex gap-3 pt-2">
                                     <button type="button" onclick="closeModal()" class="flex-1 py-3 rounded-xl bg-gray-100 text-gray-600 font-bold hover:bg-gray-200 transition text-sm">Cancelar</button>
-                                    <button type="submit" class="flex-1 py-3 rounded-xl bg-brand-500 text-white font-bold hover:bg-brand-600 transition shadow-lg shadow-brand-500/30 text-sm">Salvar Status</button>
+                                    <button type="submit" class="flex-1 py-3 rounded-xl bg-brand-500 text-white font-bold hover:bg-brand-600 transition shadow-lg shadow-brand-500/30 text-sm">Salvar Alterações</button>
                                 </div>
                             </form>
                         </div>
@@ -1352,38 +1166,55 @@
             if (!order) return;
             
             const newStatus = document.getElementById('modal-order-status').value;
-            const updatePayload = { status: newStatus };
-            
-            if(order.status !== newStatus) {
-                const historyEntry = {
-                    id: Math.random().toString(36).substr(2, 9),
-                    author: state.currentUser?.displayName || 'Restaurante',
-                    customerName: order.customer?.name,
-                    orderId: orderId,
-                    changes: [{field: 'Status', before: order.status, after: newStatus}],
-                    createdAt: Date.now()
-                };
-                updatePayload.history = [...(order.history || []), historyEntry];
-            }
+            const newCName = document.getElementById('edit-order-c-name').value;
+            const newCPhone = document.getElementById('edit-order-c-phone').value;
+            const newCAddress = document.getElementById('edit-order-c-address').value;
+
+            const updatePayload = { 
+                status: newStatus,
+                customer: {
+                    name: newCName,
+                    phone: newCPhone,
+                    address: newCAddress
+                }
+            };
             
             try {
                 await updateDoc(doc(db, collections.orders, orderId), updatePayload);
-                showToast('Status do pedido atualizado!');
+                showToast('Pedido atualizado com sucesso!');
                 closeModal();
-                loadAdminData();
             } catch(err) {
                 showToast('Erro ao atualizar: ' + err.message, 'error');
             }
         };
+
+        window.unsubPublicTenant = null;
 
         window.loadPublicMenuData = async function(slug) {
             try {
                 const q = query(collection(db, collections.tenants), where("slug", "==", slug));
                 const snap = await getDocs(q);
                 if (snap.empty) { state.publicTenant = null; return; }
-                state.publicTenant = { id: snap.docs[0].id, ...snap.docs[0].data() };
+                
+                const tenantId = snap.docs[0].id;
+                state.publicTenant = { id: tenantId, ...snap.docs[0].data() };
 
-                const pq = query(collection(db, collections.products), where("tenantId", "==", state.publicTenant.id));
+                // ATUALIZAÇÃO EM TEMPO REAL DO STATUS DA LOJA
+                if(window.unsubPublicTenant) window.unsubPublicTenant();
+                window.unsubPublicTenant = onSnapshot(doc(db, collections.tenants, tenantId), (docSnap) => {
+                    if(docSnap.exists()){
+                        state.publicTenant.settings = docSnap.data().settings;
+                        const badgeContainer = document.getElementById('public-status-badge');
+                        if(badgeContainer) {
+                            const isOpen = state.publicTenant.settings?.open !== false;
+                            badgeContainer.innerHTML = isOpen 
+                                ? `<span class="bg-green-100 text-green-700 px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span> Aberto</span>` 
+                                : `<span class="bg-red-100 text-red-700 px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-red-500"></span> Fechado</span>`;
+                        }
+                    }
+                });
+
+                const pq = query(collection(db, collections.products), where("tenantId", "==", tenantId));
                 const psnap = await getDocs(pq);
                 state.publicProducts = psnap.docs.map(d => ({ id: d.id, ...d.data() }))
                     .sort((a, b) => {
@@ -1427,7 +1258,7 @@
                             </div>
                             <div class="pb-2">
                                 <h1 class="text-2xl sm:text-3xl font-black text-gray-900 leading-tight">${t.name}</h1>
-                                <div class="flex items-center gap-2 mt-1">
+                                <div id="public-status-badge" class="flex items-center gap-2 mt-1">
                                     ${isOpen 
                                         ? `<span class="bg-green-100 text-green-700 px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span> Aberto</span>` 
                                         : `<span class="bg-red-100 text-red-700 px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-red-500"></span> Fechado</span>`}
@@ -1607,7 +1438,6 @@
                 total: total,
                 status: 'novo',
                 createdAt: Date.now(),
-                history: [{ field: 'status', before: '', after: 'novo', createdAt: Date.now() }]
             };
             
             try {
@@ -1660,16 +1490,16 @@
             const content = document.getElementById('order-status-content');
             if(!content) return;
             
-            let statusConfig = { text: "Enviado ao Restaurante: Analisando Pedido", color: "text-blue-600", bg: "bg-blue-50", icon: "fa-clock", pulse: true, wppText: "Olá, enviei meu pedido e está em análise!" };
+            let statusConfig = { text: "Enviado ao Restaurante: Analisando Pedido", color: "text-blue-600", bg: "bg-blue-50", icon: "fa-clock", pulse: true };
             
             if (order.status === 'preparando' || order.status === 'aceito') {
-                statusConfig = { text: "Pedido Aceito", color: "text-green-600", bg: "bg-green-50", icon: "fa-check-circle", pulse: true, wppText: "Olá, vi que meu pedido foi aceito!" };
+                statusConfig = { text: "Pedido Aceito", color: "text-green-600", bg: "bg-green-50", icon: "fa-check-circle", pulse: true };
             } else if (order.status === 'entrega') {
-                statusConfig = { text: "Saiu para Entrega", color: "text-purple-600", bg: "bg-purple-50", icon: "fa-motorcycle", pulse: true, wppText: "Olá, vi que meu pedido saiu para entrega!" };
+                statusConfig = { text: "Saiu para Entrega", color: "text-purple-600", bg: "bg-purple-50", icon: "fa-motorcycle", pulse: true };
             } else if (order.status === 'entregue') {
-                statusConfig = { text: "Pedido Entregue", color: "text-gray-600", bg: "bg-gray-100", icon: "fa-flag-checkered", pulse: false, wppText: "Olá, recebi o pedido." };
+                statusConfig = { text: "Pedido Entregue", color: "text-gray-600", bg: "bg-gray-100", icon: "fa-flag-checkered", pulse: false };
             } else if (order.status === 'cancelado' || order.status === 'recusado') {
-                statusConfig = { text: "Pedido Recusado (Fechado ou Indisponível)", color: "text-red-600", bg: "bg-red-50", icon: "fa-times-circle", pulse: false, wppText: "Olá, vi que meu pedido foi recusado. Qual o motivo?" };
+                statusConfig = { text: "Pedido Recusado (Fechado ou Indisponível)", color: "text-red-600", bg: "bg-red-50", icon: "fa-times-circle", pulse: false };
             }
             
             const itemsText = order.items.map(i => `${i.quantity}x ${i.name}`).join('%0A');
@@ -1702,8 +1532,8 @@
                     </div>
                     
                     ${tenantPhone ? `
-                        <a href="${wppLink}" target="_blank" class="w-full bg-[#25D366] hover:bg-[#1DA851] text-white font-black py-4 rounded-xl transition shadow-lg shadow-[#25D366]/30 flex items-center justify-center gap-2 text-sm md:text-base">
-                            <i class="fab fa-whatsapp text-xl"></i> Enviar detalhes do pedido no WhatsApp
+                        <a href="${wppLink}" target="_blank" class="w-full bg-[#25D366] hover:bg-[#1DA851] text-white font-black py-4 rounded-xl transition shadow-lg shadow-[#25D366]/30 flex items-center justify-center gap-2 text-sm md:text-base uppercase tracking-tight">
+                            <i class="fab fa-whatsapp text-xl"></i> ENVIAR DETALHES DO MEU PEDIDO NO WHATSAPP
                         </a>
                     ` : ''}
                 </div>
