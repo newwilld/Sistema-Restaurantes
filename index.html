@@ -119,6 +119,8 @@
             isAppLoaded: false
         };
 
+        window.isAuthProcessing = false; // Flag de Otimização
+
         function generateId() {
             return Math.random().toString(36).substring(2, 15);
         }
@@ -200,6 +202,8 @@
 
         async function initializeAppAuth() {
             onAuthStateChanged(auth, async (user) => {
+                if (window.isAuthProcessing) return; // Ignora se o form de login/cadastro estiver processando para evitar race condition
+
                 state.currentUser = user;
                 if (user) {
                     state.isSuperAdmin = (user.email === 'willdalves1@gmail.com');
@@ -217,7 +221,6 @@
                             console.error("Erro ao carregar perfil da loja:", e);
                         }
                     } else {
-                        // CORREÇÃO: Só carrega notificações se for admin master
                         try {
                             await loadSuperAdminNotifications();
                         } catch (err) {
@@ -258,11 +261,8 @@
             }
         }
 
-        // CORREÇÃO: Função com tratamento de erros melhorado
         async function loadSuperAdminNotifications() {
-            // Verifica se o usuário é admin master
             if (!state.isSuperAdmin || !state.currentUser) {
-                console.log("Usuário não é admin master, pulando notificações");
                 state.superAdminNotifications = [];
                 return;
             }
@@ -289,11 +289,6 @@
                         resolve();
                     }, (err) => {
                         console.warn("Erro ao carregar notificações do admin:", err);
-                        console.log("Isso geralmente indica que as regras do Firestore precisam ser ajustadas.");
-                        console.log("Acesse: Console Firebase > Firestore Database > Rules");
-                        console.log("Adicione: allow read, write: if request.auth != null;");
-                        
-                        // Limpa a referência para permitir retry na próxima chamada
                         window.unsubSuperAdminNotifs = null;
                         state.superAdminNotifications = [];
                         resolve();
@@ -469,6 +464,8 @@
             const email = document.getElementById('email').value;
             const password = document.getElementById('password').value;
 
+            window.isAuthProcessing = true; // Flag para evitar que onAuthStateChanged bagunce o estado
+
             try {
                 if (isRegister && !isAdmin) {
                     const name = document.getElementById('restaurant-name').value;
@@ -500,7 +497,6 @@
 
                     await setDoc(doc(db, collections.tenants, userCreds.user.uid), tenantData);
 
-                    // CORREÇÃO: Tenta criar notificação mas não falha se não conseguir
                     try {
                         await createAdminNotification({
                             type: 'admin_master',
@@ -514,13 +510,18 @@
                         console.warn("Aviso: Não foi possível criar notificação para admin:", notifErr);
                     }
 
-                    // Otimização: Popula os dados imediatamente no state local para evitar atraso/travamento.
+                    // Otimização Extrema: Popula estado e roteia sem esperar F5
                     state.currentUser = userCreds.user;
                     state.currentTenant = { id: userCreds.user.uid, ...tenantData };
                     state.isSuperAdmin = false;
+                    state.isAppLoaded = true;
 
                     showToast('Restaurante criado com sucesso! Bem-vindo(a).');
+                    window.isAuthProcessing = false;
+                    
+                    // Força carregamento imediato
                     window.location.hash = '#/admin';
+                    handleRoute();
 
                 } else {
                     const userCreds = await signInWithEmailAndPassword(auth, email, password);
@@ -528,7 +529,6 @@
                         throw new Error("Acesso administrativo negado.");
                     }
                     
-                    // Otimização: Popula e recupera os dados na mesma requisição para transição rápida.
                     state.currentUser = userCreds.user;
                     state.isSuperAdmin = (email === 'willdalves1@gmail.com');
                     
@@ -541,7 +541,6 @@
                             state.currentTenant = null;
                         }
                     } else {
-                        // CORREÇÃO: Carrega notificações com tratamento de erro
                         try {
                             await loadSuperAdminNotifications();
                         } catch (err) {
@@ -549,9 +548,13 @@
                         }
                     }
 
+                    state.isAppLoaded = true;
                     showToast('Acesso liberado.');
-                    // Força a navegação imediatamente
+                    window.isAuthProcessing = false;
+
+                    // Força a navegação imediatamente sem reload
                     window.location.hash = state.isSuperAdmin ? '#/superadmin' : '#/admin';
+                    handleRoute();
                 }
             } catch (error) {
                 console.error(error);
@@ -561,6 +564,7 @@
                 showToast(msg, 'error');
                 btn.innerHTML = originalText;
                 btn.disabled = false;
+                window.isAuthProcessing = false;
             }
         }
 
@@ -572,13 +576,11 @@
                 read: false
             };
 
-            // Sempre atualiza o state local primeiro para feedback imediato
             if (state.isSuperAdmin) {
                 state.superAdminNotifications.unshift(notifObj);
                 refreshSuperAdminContent();
             }
 
-            // Tenta gravar no Firestore
             try {
                 const notifRef = doc(collection(db, collections.adminNotifications));
                 await setDoc(notifRef, {
@@ -586,11 +588,9 @@
                     createdAt: Date.now(),
                     read: false
                 });
-                // Atualiza o ID local com o ID real do Firestore
                 notifObj.id = notifRef.id;
             } catch (err) {
                 console.warn("Erro ao salvar notificação no Firestore:", err);
-                console.log("Verifique as regras do Firestore para permitir escrita na coleção saas_admin_notifications");
             }
         }
 
@@ -600,7 +600,6 @@
             state.currentTenant = null;
             state.isSuperAdmin = false;
             
-            // Limpa os ouvintes de tempo real ao sair
             if (window.unsubSuperAdminTenants) {
                 window.unsubSuperAdminTenants();
                 window.unsubSuperAdminTenants = null;
@@ -618,7 +617,6 @@
         async function loadSuperAdminData() {
             if (!state.isSuperAdmin) return;
             
-            // Carrega lojistas também com ouvinte em tempo real
             const tenantsPromise = new Promise((resolve) => {
                 if (window.unsubSuperAdminTenants) {
                     resolve();
@@ -640,7 +638,6 @@
 
             await tenantsPromise;
             
-            // CORREÇÃO: Carrega notificações com tratamento de erro
             try {
                 await loadSuperAdminNotifications();
             } catch (err) {
@@ -665,7 +662,6 @@
                 
                 const today = new Date();
                 today.setHours(0,0,0,0);
-                // Ajusta timezone para evitar bugs de virada de dia
                 const renewalParts = t.renewalDate.split('-');
                 const renewal = new Date(renewalParts[0], renewalParts[1] - 1, renewalParts[2]); 
                 
@@ -699,7 +695,6 @@
                     t.status = updateFields.status || t.status;
                     t.lastNotif = notifType;
 
-                    // CORREÇÃO: Tenta criar notificação mas não falha se não conseguir
                     try {
                         await createAdminNotification({
                             type: 'admin_master',
@@ -974,7 +969,8 @@
                 </div>
             `;
         }
-                window.openTenantDetailsModal = function(tenantId) {
+
+        window.openTenantDetailsModal = function(tenantId) {
             const tenant = state.superAdminTenants.find(t => t.id === tenantId);
             if (!tenant) return;
 
@@ -1136,7 +1132,6 @@
                     lastModified: Date.now()
                 };
 
-                // Remove a notificação de vencimento caso o admin renove o plano manualmente
                 if(oldTenant && oldTenant.renewalDate !== renewalDate) {
                     updatedPayload.lastNotif = null; 
                 }
@@ -1162,7 +1157,6 @@
                             ? `@${name} atualizou a senha no sistema`
                             : `@${name} atualizou o email de acesso`;
                         
-                        // CORREÇÃO: Tenta criar notificação mas não falha se não conseguir
                         try {
                             await createAdminNotification({
                                 type: 'admin_master',
@@ -1314,7 +1308,6 @@
 
                 await signOutSecondary(secondaryAuth);
 
-                // CORREÇÃO: Tenta criar notificação mas não falha se não conseguir
                 try {
                     await createAdminNotification({
                         type: 'admin_master',
@@ -1550,7 +1543,7 @@
         }
 
         window.openRenewalModal = function() {
-            const phoneNumber = "5511999999999"; // Número do admin master (substitua pelo real)
+            const phoneNumber = "5511999999999"; 
             const wppMessage = encodeURIComponent(`Olá, sou o restaurante ${state.currentTenant?.name} e gostaria de enviar o comprovante de pagamento para liberação do meu sistema.`);
             const html = `
                 <div class="fixed inset-0 z-50 flex items-center justify-center p-4 overlay fade-in">
@@ -1568,7 +1561,6 @@
                             </div>
                             
                             <div class="bg-gray-50 p-4 rounded-2xl border border-gray-200 inline-block mx-auto shadow-inner">
-                                <!-- Placeholder para QR Code Pix Real -->
                                 <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=00020126360014br.gov.bcb.pix0114+5511999999999520400005303986540599.905802BR5910WA VENDAS6009SAO PAULO62070503***6304" alt="QR Code Pix" class="w-48 h-48 mx-auto rounded-lg">
                             </div>
                             
@@ -1783,7 +1775,6 @@
                 state.currentTenant.phone = newPhone;
                 
                 if (oldPhone !== newPhone) {
-                    // CORREÇÃO: Tenta criar notificação mas não falha se não conseguir
                     try {
                         await createAdminNotification({
                             type: 'admin_master',
@@ -1819,7 +1810,6 @@
                 
                 await updateDoc(doc(db, collections.tenants, state.currentTenant.id), { password: newPass });
                 
-                // CORREÇÃO: Tenta criar notificação mas não falha se não conseguir
                 try {
                     await createAdminNotification({
                         type: 'admin_master',
@@ -1836,7 +1826,6 @@
                 document.getElementById('cfg-password').value = '';
                 btn.disabled = false; btn.innerHTML = 'Editar Senha';
 
-                // Mostra o modal de sucesso com a nova senha
                 openModal(`
                     <div class="fixed inset-0 z-50 flex items-center justify-center p-4 overlay fade-in">
                         <div class="bg-white rounded-3xl shadow-2xl p-8 text-center max-w-sm w-full">
@@ -1859,10 +1848,38 @@
             }
         };
 
+        window.toggleStoreStatus = async function() {
+            if(!state.currentTenant) return;
+            const currentState = state.currentTenant.settings?.open !== false; // Padrão é true
+            const newState = !currentState;
+            
+            try {
+                await updateDoc(doc(db, collections.tenants, state.currentTenant.id), {
+                    'settings.open': newState
+                });
+                
+                if(!state.currentTenant.settings) state.currentTenant.settings = {};
+                state.currentTenant.settings.open = newState;
+                
+                showToast(newState ? 'Restaurante Aberto para pedidos!' : 'Restaurante Fechado!');
+                handleRoute(); // Atualiza a view instantaneamente
+            } catch(err) {
+                showToast('Erro ao atualizar status.', 'error');
+            }
+        }
+
         function renderAdminMenuBuilder() {
+            const isOpen = state.currentTenant?.settings?.open !== false;
+            
             return `
                 <div class="mb-6">
-                    <h3 class="font-bold text-gray-800 text-lg mb-4">Configurações do Cardápio</h3>
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+                        <h3 class="font-bold text-gray-800 text-lg">Configurações do Cardápio</h3>
+                        <button onclick="toggleStoreStatus()" class="px-5 py-2.5 rounded-xl font-bold shadow-sm transition flex items-center justify-center gap-2 ${isOpen ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-red-500 text-white hover:bg-red-600'}">
+                            <i class="fas ${isOpen ? 'fa-door-open' : 'fa-door-closed'} text-lg"></i>
+                            ${isOpen ? 'Restaurante Aberto' : 'Restaurante Fechado'}
+                        </button>
+                    </div>
                     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                         <button onclick="openRestaurantNameEditor()" class="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm hover:shadow-md transition text-left group">
                             <div class="flex items-center gap-3">
@@ -1947,7 +1964,8 @@
                 </div>
             `;
         }
-                window.openRestaurantNameEditor = function() {
+
+        window.openRestaurantNameEditor = function() {
             const currentName = state.currentTenant?.name || '';
             const html = `
                 <div class="fixed inset-0 z-50 flex items-center justify-center p-4 overlay fade-in">
@@ -2442,7 +2460,7 @@
             `;
             
             const modalContainer = document.getElementById('modal-container');
-            modalContainer.innerHTML = html;
+            modalContainer.innerHTML += html; // Add to existing modals
             
             setTimeout(() => {
                 const image = document.getElementById('cropper-image');
@@ -2465,8 +2483,9 @@
                 window.cropperInstance.destroy();
                 window.cropperInstance = null;
             }
-            const currentHash = window.location.hash;
-            handleRoute();
+            // Remove apenas o cropper, não todos os modais
+            const cropperModal = document.querySelector('.z-\\[60\\]');
+            if(cropperModal) cropperModal.remove();
         }
 
         window.applyCrop = function(inputId, previewId) {
@@ -2489,12 +2508,7 @@
             preview.src = croppedDataUrl;
             previewContainer.classList.remove('hidden');
             
-            window.cropperInstance.destroy();
-            window.cropperInstance = null;
-            
-            const currentHash = window.location.hash;
-            handleRoute();
-            
+            window.closeCropper();
             showToast('Imagem recortada com sucesso!');
         }
 
@@ -2707,7 +2721,7 @@
             if (!oldOrder) {
                 showToast("Pedido não encontrado.", "error");
                 btn.disabled = false;
-                btn.innerHTML = 'Salvar Alterações';
+                btn.innerHTML = '<i class="fas fa-save"></i> Salvar Alterações';
                 return;
             }
 
@@ -2755,307 +2769,57 @@
 
             const newHistoryItem = {
                 id: generateId(),
-                orderId: orderId,
-                author: author,
-                customerName: oldName || newName || 'Cliente',
-                changes: changes,
                 createdAt: Date.now(),
-                read: false
+                changes: changes,
+                author: author
             };
 
-            const updatedOrderPayload = {
-                ...oldOrder,
-                customer: {
-                    ...(oldOrder.customer || {}),
-                    name: newName,
-                    phone: newPhone,
-                    address: newAddress
-                },
+            const updatedOrder = {
+                'customer.name': newName,
+                'customer.phone': newPhone,
+                'customer.address': newAddress,
                 observations: newObs,
                 status: newStatus,
-                total: newTotal,
-                lastModified: Date.now(),
-                lastModifiedBy: author,
-                history: [newHistoryItem, ...(oldOrder.history || [])]
+                total: newTotal
             };
 
             try {
                 const orderRef = doc(db, collections.orders, orderId);
-                await setDoc(orderRef, updatedOrderPayload, { merge: true });
-
-                try {
-                    const notifRef = doc(collection(db, collections.notifications));
-                    await setDoc(notifRef, {
-                        tenantId: state.currentTenant?.id || oldOrder.tenantId,
-                        ...newHistoryItem
-                    });
-                } catch (notifErr) {
-                    console.warn("Aviso: Notificação registrada no histórico do pedido.", notifErr);
-                }
-
-                const orderIndex = state.adminOrders.findIndex(o => o.id === orderId);
-                if (orderIndex !== -1) {
-                    state.adminOrders[orderIndex] = updatedOrderPayload;
-                }
-                state.adminNotifications.unshift(newHistoryItem);
-
-                showToast(`Alterações salvas e registradas em Notificações!`);
-                closeModal();
-                loadAdminData();
-            } catch (err) {
-                console.error("Erro ao salvar alterações do pedido:", err);
-                showToast("Erro ao salvar alterações: " + err.message, "error");
-                btn.disabled = false;
-                btn.innerHTML = 'Salvar Alterações';
-            }
-        };
-
-        async function loadPublicMenuData(slug) {
-            const q = query(collection(db, collections.tenants), where("slug", "==", slug));
-            const snap = await getDocs(q);
-            if (snap.empty) {
-                state.publicTenant = null;
-                return;
-            }
-            state.publicTenant = { id: snap.docs[0].id, ...snap.docs[0].data() };
-
-            const pq = query(collection(db, collections.products), where("tenantId", "==", state.publicTenant.id));
-            const psnap = await getDocs(pq);
-            state.publicProducts = psnap.docs.map(d => ({ id: d.id, ...d.data() }))
-                .sort((a, b) => {
-                    const orderA = a.order !== undefined ? a.order : 999999;
-                    const orderB = b.order !== undefined ? b.order : 999999;
-                    if (orderA !== orderB) return orderA - orderB;
-                    return (a.createdAt || 0) - (b.createdAt || 0);
-                });
-        }
-
-        window.renderPublicMenu = function(container) {
-            if (!state.publicTenant) {
-                container.innerHTML = `<div class="min-h-screen flex items-center justify-center flex-col"><i class="fas fa-store-slash text-4xl text-gray-300 mb-4"></i><h2 class="text-xl font-bold">Restaurante não encontrado.</h2><a href="#/" class="text-brand-500 mt-4 font-bold">Voltar</a></div>`;
-                return;
-            }
-
-            if (state.publicTenant.status === 'suspended' || state.publicTenant.status === 'canceled') {
-                container.innerHTML = `
-                    <div class="min-h-screen flex items-center justify-center bg-gray-50 p-4 fade-in">
-                        <div class="bg-white p-8 md:p-12 rounded-3xl shadow-2xl text-center max-w-md w-full border border-gray-100 relative overflow-hidden">
-                            <div class="absolute top-0 left-0 w-full h-2 bg-red-500"></div>
-                            <div class="w-24 h-24 bg-red-50 text-red-500 rounded-full flex items-center justify-center text-5xl mx-auto mb-6 shadow-inner">
-                                <i class="fas fa-lock"></i>
-                            </div>
-                            <h2 class="text-2xl font-black text-gray-800 mb-3">Sistema Congelado</h2>
-                            <p class="text-gray-500 font-medium leading-relaxed mb-6">O cardápio de <strong>${state.publicTenant.name}</strong> encontra-se temporariamente indisponível.</p>
-                            <a href="#/" class="inline-block bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-3 px-6 rounded-xl transition">Voltar ao Início</a>
-                        </div>
-                    </div>
-                `;
-                return;
-            }
-
-            const t = state.publicTenant;
-            const coverImage = t.settings?.coverImage || '';
-            const profileImage = t.settings?.profileImage || '';
-            
-            container.innerHTML = `
-                <div class="min-h-screen bg-gray-50 pb-24 text-sm fade-in">
-                    <div class="h-48 bg-gradient-to-r from-gray-800 to-gray-900 relative" style="${coverImage ? `background-image: url('${coverImage}'); background-size: cover; background-position: center;` : ''}">
-                        <div class="absolute inset-0 bg-black/20"></div>
-                        <div class="absolute -bottom-10 left-4 md:left-12 flex items-end gap-4">
-                            <div class="w-24 h-24 bg-white rounded-2xl shadow-lg border-4 border-white flex items-center justify-center text-3xl font-black text-brand-500 uppercase overflow-hidden" style="${profileImage ? `background-image: url('${profileImage}'); background-size: cover; background-position: center;` : ''}">
-                                ${profileImage ? '' : t.name.charAt(0)}
-                            </div>
-                            <div class="mb-4">
-                                <h1 class="text-2xl font-black text-white drop-shadow-md leading-tight mb-1">${t.name}</h1>
-                                <span class="px-2.5 py-0.5 bg-green-500 text-white rounded text-xs font-bold shadow uppercase tracking-wider inline-block">Aberto</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="pt-16 px-3 sm:px-6 md:px-12 max-w-5xl mx-auto">
-                        <div class="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4 md:gap-6" id="public-products">
-                            ${state.publicProducts.map(p => `
-                                <div class="bg-white rounded-2xl overflow-hidden shadow-sm border border-gray-100 group hover:shadow-md transition flex flex-col justify-between">
-                                    <div>
-                                        <div class="product-image-mobile h-32 sm:h-40 md:h-44 bg-gray-100 bg-cover bg-center" style="background-image: url('${p.image || 'https://placehold.co/400x300/eeeeee/999999?text=Sem+Foto'}')"></div>
-                                        <div class="p-3 sm:p-4">
-                                            <h3 class="font-bold text-gray-800 text-sm sm:text-base md:text-lg mb-1 leading-tight line-clamp-2">${p.name}</h3>
-                                            <p class="text-xs text-gray-500 mb-2 line-clamp-2 leading-relaxed">${p.description || ''}</p>
-                                            <div class="font-black text-brand-600 text-sm sm:text-base md:text-lg mb-1">
-                                                ${p.price.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div class="p-3 sm:p-4 pt-0">
-                                        <button onclick="addToCart('${p.id}')" class="w-full bg-brand-50 hover:bg-brand-500 text-brand-600 hover:text-white py-2 sm:py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 font-bold text-xs sm:text-sm transition shadow-sm">
-                                            <i class="fas fa-plus text-xs"></i>
-                                            <span>Adicionar</span>
-                                        </button>
-                                    </div>
-                                </div>
-                            `).join('')}
-                            ${state.publicProducts.length === 0 ? `<div class="col-span-full py-12 text-center text-gray-500">Este restaurante ainda não possui itens no cardápio.</div>` : ''}
-                        </div>
-                    </div>
-
-                    <div class="fixed bottom-0 left-0 w-full p-4 bg-white border-t border-gray-200 shadow-[0_-10px_40px_rgba(0,0,0,0.05)] z-40 transform transition-transform duration-300 ${state.cart.length > 0 ? 'translate-y-0' : 'translate-y-full'}">
-                        <div class="max-w-5xl mx-auto flex gap-4">
-                            <button onclick="renderCart()" class="w-full bg-brand-500 text-white font-bold py-4 rounded-xl shadow-lg shadow-brand-500/30 flex justify-between items-center px-6">
-                                <span class="flex items-center gap-2"><div class="w-6 h-6 bg-white/20 rounded-full flex items-center justify-center text-xs" id="cart-count">${state.cart.length}</div> Ver Carrinho</span>
-                                <span id="cart-total-btn">R$ 0,00</span>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            `;
-            updateCartTotal();
-        }
-
-        window.addToCart = function(productId) {
-            const product = state.publicProducts.find(p => p.id === productId);
-            if (!product) return;
-            
-            const existing = state.cart.find(item => item.product.id === productId);
-            if (existing) {
-                existing.quantity++;
-            } else {
-                state.cart.push({ product, quantity: 1 });
-            }
-            
-            showToast(`${product.name} adicionado!`);
-            updateCartTotal();
-            
-            if(state.cart.length === 1) handleRoute(); 
-        }
-
-        function updateCartTotal() {
-            const total = state.cart.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
-            const btnTotal = document.getElementById('cart-total-btn');
-            const count = document.getElementById('cart-count');
-            if(btnTotal) btnTotal.innerText = total.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'});
-            if(count) count.innerText = state.cart.reduce((sum, item) => sum + item.quantity, 0);
-        }
-
-        window.renderCart = function() {
-            const total = state.cart.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
-            
-            const html = `
-                <div class="fixed inset-0 z-50 flex justify-end overlay fade-in">
-                    <div class="bg-white w-full max-w-md h-full flex flex-col shadow-2xl slide-left">
-                        <div class="p-6 border-b flex justify-between items-center bg-gray-50">
-                            <h3 class="font-black text-gray-800 text-xl"><i class="fas fa-shopping-bag text-brand-500 mr-2"></i> Seu Pedido</h3>
-                            <button onclick="closeModal()" class="w-8 h-8 bg-white border rounded-full text-gray-500 hover:text-gray-800 flex items-center justify-center shadow-sm">&times;</button>
-                        </div>
-                        
-                        <div class="flex-grow overflow-y-auto p-6 space-y-4">
-                            ${state.cart.map((item, index) => `
-                                <div class="flex justify-between items-center pb-4 border-b border-gray-100 last:border-0">
-                                    <div class="flex gap-3 items-center">
-                                        <div class="font-bold text-gray-800">${item.quantity}x</div>
-                                        <div>
-                                            <p class="font-bold text-gray-800">${item.product.name}</p>
-                                            <p class="text-brand-600 font-bold text-xs">${(item.product.price * item.quantity).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</p>
-                                        </div>
-                                    </div>
-                                    <button onclick="state.cart.splice(${index}, 1); updateCartTotal(); renderCart();" class="text-red-400 hover:text-red-600 p-2"><i class="fas fa-trash"></i></button>
-                                </div>
-                            `).join('')}
-                            ${state.cart.length === 0 ? `<div class="text-center text-gray-400 mt-10"><i class="fas fa-shopping-cart text-4xl mb-3 opacity-20"></i><p>Seu carrinho está vazio.</p></div>` : ''}
-                        </div>
-
-                        ${state.cart.length > 0 ? `
-                        <div class="p-6 border-t bg-gray-50 overflow-y-auto max-h-[50vh]">
-                            <div class="flex justify-between items-center mb-4 text-lg">
-                                <span class="font-bold text-gray-600">Total</span>
-                                <span class="font-black text-gray-900">${total.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}</span>
-                            </div>
-                            <form onsubmit="checkout(event)" class="space-y-3">
-                                <div>
-                                    <label class="block text-xs font-bold text-gray-700 mb-1">Seu Nome</label>
-                                    <input type="text" id="c-name" required placeholder="Ex: João da Silva" class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-xl outline-none focus:border-brand-500 text-sm">
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-bold text-gray-700 mb-1">WhatsApp / Telefone</label>
-                                    <input type="text" id="c-phone" required placeholder="Ex: (11) 99999-9999" class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-xl outline-none focus:border-brand-500 text-sm">
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-bold text-gray-700 mb-1">Endereço de Entrega</label>
-                                    <input type="text" id="c-address" required placeholder="Rua, Número, Bairro, Compl. / Apto" class="w-full px-4 py-2.5 bg-white border border-gray-300 rounded-xl outline-none focus:border-brand-500 text-sm">
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-bold text-gray-700 mb-1">Observações do Pedido (obs)</label>
-                                    <textarea id="c-obs" rows="2" placeholder="Ex: Sem cebola, ponto da carne bem passado, troco para 50, etc." class="w-full px-4 py-2 bg-white border border-gray-300 rounded-xl outline-none focus:border-brand-500 text-sm resize-none"></textarea>
-                                </div>
-                                <button type="submit" id="btn-checkout" class="w-full py-3.5 bg-brand-500 text-white font-black rounded-xl hover:bg-brand-600 shadow-lg shadow-brand-500/30 transition text-base mt-2 flex justify-center items-center">
-                                    Finalizar Pedido
-                                </button>
-                            </form>
-                        </div>
-                        ` : ''}
-                    </div>
-                </div>
-                <style>.slide-left { animation: slideLeft 0.3s ease-out; } @keyframes slideLeft { from { transform: translateX(100%); } to { transform: translateX(0); } }</style>
-            `;
-            openModal(html);
-        }
-
-        window.checkout = async function(e) {
-            e.preventDefault();
-            if(state.cart.length === 0) return;
-            
-            const btn = document.getElementById('btn-checkout');
-            btn.disabled = true; btn.innerHTML = '<div class="loader w-5 h-5 border-2 border-white border-t-transparent mx-auto"></div>';
-
-            const name = document.getElementById('c-name').value;
-            const phone = document.getElementById('c-phone').value;
-            const address = document.getElementById('c-address').value;
-            const observations = document.getElementById('c-obs').value;
-            const total = state.cart.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
-
-            const order = {
-                tenantId: state.publicTenant.id,
-                customer: { 
-                    name: name.trim(), 
-                    phone: phone.trim(),
-                    address: address.trim()
-                },
-                observations: observations.trim(),
-                items: state.cart.map(i => ({ 
-                    productId: i.product.id, 
-                    name: i.product.name, 
-                    price: i.product.price, 
-                    quantity: i.quantity 
-                })),
-                total: total,
-                status: 'novo',
-                createdAt: Date.now()
-            };
-
-            try {
-                await setDoc(doc(collection(db, collections.orders)), order);
-                state.cart = [];
-                closeModal();
+                const orderSnap = await getDoc(orderRef);
                 
-                openModal(`
-                    <div class="fixed inset-0 z-50 flex items-center justify-center p-4 overlay fade-in">
-                        <div class="bg-white rounded-3xl shadow-2xl p-8 text-center max-w-sm w-full">
-                            <div class="w-20 h-20 bg-green-100 text-green-500 rounded-full flex items-center justify-center text-4xl mx-auto mb-6"><i class="fas fa-check"></i></div>
-                            <h2 class="text-2xl font-black text-gray-800 mb-2">Pedido Enviado!</h2>
-                            <p class="text-gray-500 mb-6">O restaurante já recebeu o seu pedido. Em breve ele começará a ser preparado.</p>
-                            <button onclick="closeModal(); handleRoute();" class="w-full bg-gray-900 text-white font-bold py-3.5 rounded-xl">Fechar</button>
-                        </div>
-                    </div>
-                `);
-            } catch(err) {
-                showToast("Erro ao processar pedido: " + err.message, "error");
-                btn.disabled = false; btn.innerHTML = 'Finalizar Pedido';
-            }
-        }
+                if(orderSnap.exists()) {
+                    let history = orderSnap.data().history || [];
+                    history.unshift(newHistoryItem);
+                    updatedOrder.history = history;
+                    await updateDoc(orderRef, updatedOrder);
+                }
 
-        window.onload = () => {
-            setupRouter();
-            initializeAppAuth();
+                // Update local state instantly
+                Object.assign(oldOrder, {
+                    customer: { ...oldOrder.customer, name: newName, phone: newPhone, address: newAddress },
+                    observations: newObs,
+                    status: newStatus,
+                    total: newTotal
+                });
+                
+                if(!oldOrder.history) oldOrder.history = [];
+                oldOrder.history.unshift(newHistoryItem);
+
+                showToast("Pedido atualizado com sucesso!");
+                closeModal();
+                loadAdminData(); // Refresh UI
+            } catch (err) {
+                console.error(err);
+                showToast("Erro ao salvar: " + err.message, "error");
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-save"></i> Salvar Alterações';
+            }
         };
+
+        // Iniciar app e roteamento
+        initializeAppAuth();
+        setupRouter();
+
     </script>
 </body>
 </html>
